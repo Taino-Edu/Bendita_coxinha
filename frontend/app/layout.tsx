@@ -15,14 +15,14 @@ const nunito = Nunito({
 })
 
 export const viewport: Viewport = {
-  themeColor: '#42B6EE',
+  themeColor: '#F97316',
   width: 'device-width',
   initialScale: 1,
 }
 
 export const metadata: Metadata = {
-  title: { default: 'Santuário Nerd', template: '%s — Santuário Nerd' },
-  description: 'Sistema de gestão da loja de Card Games',
+  title: { default: 'Bendita Coxinha', template: '%s — Bendita Coxinha' },
+  description: 'O melhor da coxinha de São José do Rio Preto. Cardápio, eventos e muito mais.',
   manifest: '/manifest.json',
   icons: {
     icon: [
@@ -34,7 +34,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: 'Santuário Nerd',
+    title: 'Bendita Coxinha',
   },
 }
 

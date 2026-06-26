@@ -10,16 +10,16 @@ const config: Config = {
       colors: {
         // Paleta alinhada com o design Maikon
         brand: {
-          50:  '#EEF7FD',
-          100: '#D9EFF9',
-          200: '#B3DEF4',
-          300: '#7EC8EC',
-          400: '#5BBDE8',
-          500: '#3EC2F2', // primary — azul Santuário Nerd
-          600: '#1AAFD9', // primary darker
-          700: '#167AAB',
-          800: '#186288',
-          900: '#1A5170',
+          50:  '#FFF7ED',
+          100: '#FFEDD5',
+          200: '#FED7AA',
+          300: '#FDBA74',
+          400: '#FB923C',
+          500: '#F97316', // primary — laranja Bendita Coxinha
+          600: '#EA580C', // primary darker
+          700: '#C2570B',
+          800: '#9A3412',
+          900: '#7C2D12',
         },
         surface: {
           900: '#121215', // Fundo da página (app bg)
@@ -30,7 +30,7 @@ const config: Config = {
           400: '#3a3a47', // Muted bg
         },
         accent: {
-          gold:   '#FFE45E',
+          gold:   '#FCD34D',
           green:  '#00F0A8',
           red:    '#FF3B30',
           blue:   '#3b82f6',

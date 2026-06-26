@@ -11,9 +11,9 @@ import {
   Sun, Moon, Mail,
 } from 'lucide-react'
 
-const MAIKON_WHATSAPP = '5517997633103'
-const MAIKON_EMAIL    = 'santuarionerd@gmail.com'
-const NAVY            = '#0C3D5A'
+const RESTAURANTE_WHATSAPP = '5500000000000' // TODO: atualizar com WhatsApp do restaurante
+const RESTAURANTE_EMAIL    = 'contato@benditacoxinha.com.br'
+const NAVY                 = '#7C2D12'
 
 type Theme = { bg: string; card: string; cardAlt: string; border: string; blue: string; yellow: string; text: string; navy: string }
 
@@ -42,14 +42,14 @@ export default function LandingPage() {
 
   const C = isDark ? {
     bg: '#121215', card: '#1A1A1F', cardAlt: '#1E1E24',
-    border: 'rgba(255,255,255,0.07)', blue: '#3EC2F2',
-    yellow: '#FFE45E', text: 'rgba(255,255,255,0.60)',
+    border: 'rgba(255,255,255,0.07)', blue: '#F97316',
+    yellow: '#FCD34D', text: 'rgba(255,255,255,0.60)',
     navy: '#FFFFFF',
   } : {
-    bg: '#EBF7FD', card: '#FFFFFF', cardAlt: '#F0F9FF',
-    border: 'rgba(12,61,90,0.10)', blue: '#3EC2F2',
-    yellow: '#FFE45E', text: '#4D8FAC',
-    navy: '#0C3D5A',
+    bg: '#FFF7ED', card: '#FFFFFF', cardAlt: '#FFF0E0',
+    border: 'rgba(124,45,18,0.10)', blue: '#F97316',
+    yellow: '#F59E0B', text: '#9A3412',
+    navy: '#7C2D12',
   }
 
   function toggleDark() {
@@ -131,22 +131,22 @@ export default function LandingPage() {
         onMouseEnter={() => setNavHover(true)} />
 
       <nav className="fixed inset-x-0 top-0 z-50 h-16 flex items-center relative transition-transform duration-300"
-        style={{ backgroundColor: '#0F3460', backdropFilter: 'blur(16px)', transform: (navVisible || navHover) ? 'translateY(0)' : 'translateY(-100%)' }}
+        style={{ backgroundColor: '#1A0800', backdropFilter: 'blur(16px)', transform: (navVisible || navHover) ? 'translateY(0)' : 'translateY(-100%)' }}
         onMouseEnter={() => setNavHover(true)}
         onMouseLeave={() => setNavHover(false)}>
 
         {/* Marca centralizada absolutamente */}
         <div className="absolute left-1/2 -translate-x-1/2 pointer-events-none">
-          <span className="font-black text-2xl leading-none" style={{ color: '#ffffff' }}>Santuário Nerd</span>
+          <span className="font-black text-2xl leading-none" style={{ color: '#ffffff' }}>Bendita Coxinha</span>
         </div>
 
         <div className="w-full max-w-6xl mx-auto px-5 flex items-center justify-between">
 
           {/* Links desktop — esquerda */}
           <div className="hidden md:flex items-center gap-7 text-sm font-medium">
-            <a href="#eventos"  style={{ color: '#ffffff' }} className="hover:opacity-80 transition-opacity">Torneios</a>
-            <a href="#produtos" style={{ color: '#ffffff' }} className="hover:opacity-80 transition-opacity">Produtos</a>
-            <a href="#pontos"   style={{ color: '#ffffff' }} className="hover:opacity-80 transition-opacity">Pontos</a>
+            <a href="#eventos"  style={{ color: '#ffffff' }} className="hover:opacity-80 transition-opacity">Eventos</a>
+            <a href="#cardapio" style={{ color: '#ffffff' }} className="hover:opacity-80 transition-opacity">Cardápio</a>
+            <a href="#pontos"   style={{ color: '#ffffff' }} className="hover:opacity-80 transition-opacity">Fidelidade</a>
             <button
               onClick={() => (document.querySelector('[vw-access-button]') as HTMLElement | null)?.click()}
               title="Acessibilidade em Libras"
@@ -173,7 +173,7 @@ export default function LandingPage() {
             </Link>
             <a href="#eventos"
               className="hidden md:block text-sm font-black px-5 py-2 rounded-xl transition-all active:scale-95"
-              style={{ backgroundColor: C.yellow, color: NAVY }}>
+              style={{ backgroundColor: C.blue, color: '#fff' }}>
               Ver Eventos
             </a>
             <button onClick={() => setMobileMenu(v => !v)} className="md:hidden p-2" style={{ color: '#ffffff' }}>
@@ -190,8 +190,8 @@ export default function LandingPage() {
       {/* Menu mobile */}
       {mobileMenu && (
         <div className="fixed inset-x-0 top-16 z-40 border-b md:hidden px-5 py-4 space-y-1"
-          style={{ backgroundColor: NAVY, borderColor: 'rgba(255,255,255,0.10)' }}>
-          {[['#eventos','Torneios'],['#produtos','Produtos'],['#pontos','Pontos']].map(([href, label]) => (
+          style={{ backgroundColor: '#1A0800', borderColor: 'rgba(255,255,255,0.10)' }}>
+          {[['#eventos','Eventos'],['#cardapio','Cardápio'],['#pontos','Fidelidade']].map(([href, label]) => (
             <a key={href} href={href} onClick={() => setMobileMenu(false)}
               className="block py-2.5 text-sm hover:text-white transition-colors" style={{ color: 'rgba(255,255,255,0.70)' }}>
               {label}
@@ -249,7 +249,7 @@ export default function LandingPage() {
             <div className="absolute inset-0 bg-black/55" />
           </>
         ) : (
-          <div className="absolute inset-0" style={{ background: 'linear-gradient(135deg, #0D1B2A 0%, #112B45 100%)' }} />
+          <div className="absolute inset-0" style={{ background: 'linear-gradient(135deg, #1A0800 0%, #2D1500 100%)' }} />
         )}
 
         {/* Conteúdo do hero — por cima do fundo */}
@@ -259,36 +259,35 @@ export default function LandingPage() {
             {/* Texto */}
             <div className="flex-1 text-center md:text-left">
               <h1 className="text-4xl md:text-5xl lg:text-6xl font-black mb-4 leading-tight">
-                <span style={{ color: C.yellow }}>Santuário</span>{' '}
-                <span style={{ color: C.blue }}>Nerd</span>
+                <span style={{ color: C.yellow }}>Bendita</span>{' '}
+                <span style={{ color: C.blue }}>Coxinha</span>
               </h1>
               <p className="text-base md:text-lg max-w-md mb-8 leading-relaxed" style={{ color: '#ffffff' }}>
-                Produtos, torneios e a melhor experiência TCG da região.
-                Acumule pontos, compre na mesa e participe de campeonatos.
+                A melhor coxinha de São José do Rio Preto.
+                Cardápio completo, eventos especiais e o melhor atendimento da região.
               </p>
 
               <div className="flex flex-col sm:flex-row gap-3 justify-center md:justify-start">
                 <a href="#eventos"
                   className="inline-flex items-center justify-center gap-2 font-black px-7 py-3.5 rounded-xl transition-all active:scale-95"
-                  style={{ backgroundColor: C.yellow, color: NAVY, boxShadow: `0 8px 28px rgba(255,228,94,0.22)` }}>
-                  <Trophy className="w-5 h-5" /> Ver Torneios
+                  style={{ backgroundColor: C.blue, color: '#fff', boxShadow: `0 8px 28px rgba(249,115,22,0.35)` }}>
+                  <Trophy className="w-5 h-5" /> Ver Eventos
                 </a>
-                <a href="#produtos"
+                <a href="#cardapio"
                   className="inline-flex items-center justify-center gap-2 font-semibold px-7 py-3.5 rounded-xl border transition-all hover:border-white/30 hover:text-white"
                   style={{ borderColor: 'rgba(255,255,255,0.35)', color: 'rgba(255,255,255,0.85)' }}>
-                  <ShoppingBag className="w-5 h-5" /> Ver Produtos
+                  <ShoppingBag className="w-5 h-5" /> Ver Cardápio
                 </a>
               </div>
             </div>
 
-            {/* Logo principal */}
-            <div className="relative shrink-0 w-full max-w-xs sm:max-w-sm md:max-w-md">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/logo-santuario.svg"
-                alt="Santuário Nerd"
-                className="w-full h-auto object-contain drop-shadow-[0_16px_48px_rgba(0,0,0,0.5)]"
-              />
+            {/* Logo principal — placeholder até receber a arte */}
+            <div className="relative shrink-0 w-full max-w-xs sm:max-w-sm md:max-w-md flex items-center justify-center py-8">
+              <div className="text-center select-none">
+                <div className="text-8xl md:text-9xl mb-2 drop-shadow-[0_8px_24px_rgba(0,0,0,0.5)]">🍗</div>
+                <p className="font-black text-3xl md:text-4xl leading-none drop-shadow" style={{ color: C.yellow }}>Bendita</p>
+                <p className="font-black text-3xl md:text-4xl leading-none drop-shadow" style={{ color: C.blue }}>Coxinha</p>
+              </div>
             </div>
           </div>
         </div>
@@ -353,7 +352,7 @@ export default function LandingPage() {
                 style={{
                   opacity: i === annIdx ? 1 : 0,
                   pointerEvents: i === annIdx ? 'auto' : 'none',
-                  background: 'linear-gradient(135deg, #0D1B2A 0%, #112B45 100%)',
+                  background: 'linear-gradient(135deg, #1A0800 0%, #2D1500 100%)',
                 }}
               >
                 {a.imageUrl ? (
@@ -373,7 +372,7 @@ export default function LandingPage() {
                   </>
                 ) : (
                   <div className="w-full h-full flex flex-col items-center justify-center gap-4 px-8 text-center"
-                    style={{ background: `linear-gradient(135deg, #0D1B2A 0%, #112B45 100%)` }}>
+                    style={{ background: `linear-gradient(135deg, #1A0800 0%, #2D1500 100%)` }}>
                     <span className="inline-block text-xs font-black uppercase tracking-widest px-3 py-1 rounded"
                       style={{ background: a.type === 'Destaque' ? C.blue : C.yellow, color: a.type === 'Destaque' ? '#fff' : NAVY }}>
                       {a.type === 'Destaque' ? 'Destaque' : 'Aviso'}
@@ -435,7 +434,7 @@ export default function LandingPage() {
           <div className="flex items-baseline justify-between mb-8">
             <div>
               <p className="text-xs font-black uppercase tracking-widest mb-1.5" style={{ color: C.blue }}>Agenda</p>
-              <h2 className="text-2xl md:text-3xl font-black" style={{ color: C.navy }}>Próximos Torneios</h2>
+              <h2 className="text-2xl md:text-3xl font-black" style={{ color: C.navy }}>Próximos Eventos</h2>
             </div>
           </div>
 
@@ -468,11 +467,11 @@ export default function LandingPage() {
       </section>
 
       {/* ── PRODUTOS ────────────────────────────────────────────────────── */}
-      <section id="produtos" className="py-16 px-5 border-t" style={{ borderColor: C.border }}>
+      <section id="cardapio" className="py-16 px-5 border-t" style={{ borderColor: C.border }}>
         <div className="max-w-6xl mx-auto">
           <div className="flex items-baseline justify-between mb-8">
             <div>
-              <p className="text-xs font-black uppercase tracking-widest mb-1.5" style={{ color: C.blue }}>Vitrine</p>
+              <p className="text-xs font-black uppercase tracking-widest mb-1.5" style={{ color: C.blue }}>Cardápio</p>
               <h2 className="text-2xl md:text-3xl font-black" style={{ color: C.navy }}>Em Destaque</h2>
             </div>
           </div>
@@ -526,7 +525,7 @@ export default function LandingPage() {
                       style={{ borderColor: C.blue, color: C.blue }}>
                       <ChevronRight className="w-8 h-8" />
                       <span className="text-xs font-black text-center leading-snug px-2">
-                        Ver todos<br />{products.length} produtos
+                        Ver cardápio<br />{products.length} itens
                       </span>
                     </Link>
                   </div>
@@ -565,7 +564,7 @@ export default function LandingPage() {
                   href="/produtos"
                   className="flex items-center gap-2 text-sm font-black px-6 py-2.5 rounded-xl transition-all active:scale-95"
                   style={{ backgroundColor: C.blue, color: '#fff', boxShadow: `0 4px 16px rgba(62,194,242,0.25)` }}>
-                  Ver todos os {products.length} produtos <ChevronRight className="w-4 h-4" />
+                  Ver cardápio completo ({products.length} itens) <ChevronRight className="w-4 h-4" />
                 </Link>
               </div>
             </>
@@ -588,8 +587,8 @@ export default function LandingPage() {
                   Ganhe pontos a cada visita
                 </h2>
                 <p className="text-sm leading-relaxed max-w-sm mb-6" style={{ color: C.text }}>
-                  Acumule pontos nas suas compras e troque por descontos.
-                  Só com CPF e WhatsApp — nada de senha ou aplicativo.
+                  Acumule pontos nas suas visitas e troque por descontos no cardápio.
+                  Sem complicação — só o prazer de comer bem sempre.
                 </p>
                 <a href="#" className="inline-flex items-center gap-2 text-sm font-bold hover:gap-3 transition-all"
                   style={{ color: C.blue }}>
@@ -600,9 +599,9 @@ export default function LandingPage() {
               {/* Cards de benefício */}
               <div className="grid grid-cols-3 gap-3 w-full md:w-auto md:min-w-[340px]">
                 {[
-                  { icon: QrCode, label: 'Sem senha', sub: 'Login só com CPF' },
-                  { icon: Star,   label: 'Pontos válidos', sub: 'Enquanto você for ativo' },
-                  { icon: Award,  label: '100pts = R$1', sub: 'Desconto na comanda' },
+                  { icon: QrCode, label: 'QR na mesa', sub: 'Peça pelo celular' },
+                  { icon: Star,   label: 'Pontos válidos', sub: 'A cada visita' },
+                  { icon: Award,  label: '100pts = R$1', sub: 'Desconto no pedido' },
                 ].map(({ icon: Icon, label, sub }) => (
                   <div key={label} className="flex flex-col items-center text-center p-4 rounded-xl border"
                     style={{ backgroundColor: `${C.blue}08`, borderColor: `${C.blue}20` }}>
@@ -623,7 +622,7 @@ export default function LandingPage() {
               {[
                 { icon: Shield, text: 'Dados protegidos — LGPD' },
                 { icon: CheckCircle, text: 'Sem aplicativo necessário' },
-                { icon: MessageCircle, text: `Suporte via WhatsApp` },
+                { icon: MessageCircle, text: 'Atendimento via WhatsApp' },
               ].map(({ icon: Icon, text }) => (
                 <span key={text} className="flex items-center gap-2 text-xs font-medium" style={{ color: C.text }}>
                   <Icon className="w-3.5 h-3.5 shrink-0" style={{ color: C.blue }} /> {text}
@@ -641,16 +640,16 @@ export default function LandingPage() {
           <div className="flex flex-col md:flex-row items-center justify-between gap-6 mb-6">
             {/* Logo */}
             <div className="flex items-center gap-2.5">
-              <img src="/logo-maikon.png" alt="Santuário Nerd" className="h-8 w-auto object-contain" />
+              <div className="text-2xl leading-none">🍗</div>
               <div>
-                <p className="font-black text-sm leading-tight" style={{ color: C.navy }}>Santuário Nerd</p>
-                <p className="text-[10px]" style={{ color: C.text }}>José Bonifácio — SP</p>
+                <p className="font-black text-sm leading-tight" style={{ color: C.navy }}>Bendita Coxinha</p>
+                <p className="text-[10px]" style={{ color: C.text }}>São José do Rio Preto — SP</p>
               </div>
             </div>
 
             {/* Contato */}
             <div className="flex flex-wrap items-center justify-center gap-4">
-              <a href={`https://wa.me/${MAIKON_WHATSAPP}`} target="_blank" rel="noreferrer"
+              <a href={`https://wa.me/${RESTAURANTE_WHATSAPP}`} target="_blank" rel="noreferrer"
                 className="flex items-center gap-1.5 text-xs font-semibold transition-opacity hover:opacity-70"
                 style={{ color: '#25D366' }}>
                 <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="currentColor">
@@ -659,11 +658,11 @@ export default function LandingPage() {
                 (17) 99763-3103
               </a>
 
-              <a href={`mailto:${MAIKON_EMAIL}`}
+              <a href={`mailto:${RESTAURANTE_EMAIL}`}
                 className="flex items-center gap-1.5 text-xs font-semibold transition-opacity hover:opacity-70"
                 style={{ color: C.blue }}>
                 <Mail className="w-4 h-4 shrink-0" />
-                {MAIKON_EMAIL}
+                {RESTAURANTE_EMAIL}
               </a>
 
               <Link href="/lgpd"
@@ -683,21 +682,21 @@ export default function LandingPage() {
 
           {/* Rodapé copyright */}
           <div className="border-t pt-4 text-center text-[11px]" style={{ borderColor: C.border, color: C.text }}>
-            © {new Date().getFullYear()} Santuário Nerd · José Bonifácio — SP · Todos os direitos reservados
+            © {new Date().getFullYear()} Bendita Coxinha · São José do Rio Preto — SP · Todos os direitos reservados
           </div>
         </div>
       </footer>
 
       {/* ── WHATSAPP FLUTUANTE ──────────────────────────────────────────── */}
       <a
-        href={`https://wa.me/${MAIKON_WHATSAPP}`}
+        href={`https://wa.me/${RESTAURANTE_WHATSAPP}`}
         target="_blank"
         rel="noreferrer"
         className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 font-black text-sm px-4 py-3 rounded-2xl shadow-xl transition-all hover:scale-105 active:scale-95"
         style={{ backgroundColor: '#25D366', color: '#fff', boxShadow: '0 8px 24px rgba(37,211,102,0.4)' }}
       >
         <MessageCircle className="w-5 h-5" />
-        Falar com o Maikon
+        Falar Conosco
       </a>
 
       {/* ── MODAIS ──────────────────────────────────────────────────────── */}
@@ -812,13 +811,14 @@ function EventCalendar({ championships, onSelect, C }: {
 // ── Championship Card ─────────────────────────────────────────────────────────
 
 function ChampionshipCard({ championship: c, onRegister, C }: { championship: Championship; onRegister: () => void; C: Theme }) {
-  const gameColors: Record<string, { bg: string; text: string }> = {
-    'Pokemon':   { bg: 'rgba(234,179,8,0.15)',  text: '#FBBF24' },
-    'Magic':     { bg: 'rgba(99,102,241,0.15)', text: '#818CF8' },
-    'Yu-Gi-Oh':  { bg: 'rgba(168,85,247,0.15)', text: '#C084FC' },
-    'One Piece': { bg: 'rgba(239,68,68,0.15)',  text: '#F87171' },
+  const eventTypeColors: Record<string, { bg: string; text: string }> = {
+    'Show ao Vivo':    { bg: 'rgba(249,115,22,0.15)',  text: '#FB923C' },
+    'Happy Hour':      { bg: 'rgba(234,179,8,0.15)',   text: '#FBBF24' },
+    'Jantar Especial': { bg: 'rgba(168,85,247,0.15)',  text: '#C084FC' },
+    'Esportivo':       { bg: 'rgba(34,197,94,0.15)',   text: '#4ADE80' },
+    'Data Especial':   { bg: 'rgba(239,68,68,0.15)',   text: '#F87171' },
   }
-  const gc = gameColors[c.game] ?? { bg: 'rgba(62,194,242,0.12)', text: '#3EC2F2' }
+  const gc = eventTypeColors[c.game] ?? { bg: 'rgba(249,115,22,0.12)', text: '#F97316' }
 
   return (
     <div className="rounded-2xl overflow-hidden flex flex-col group transition-all hover:translate-y-[-2px]"
@@ -1173,7 +1173,7 @@ function RegisterModal({ championship, onClose, C }: { championship: Championshi
       `Nome: ${name.trim()}\nWhatsApp: ${phone.trim()}\n` +
       `Confirmo o pagamento de R$ ${(championship.entryFeeInCents / 100).toFixed(2).replace('.', ',')} na chegada.`
     )
-    window.open(`https://wa.me/${MAIKON_WHATSAPP}?text=${msg}`, '_blank')
+    window.open(`https://wa.me/${RESTAURANTE_WHATSAPP}?text=${msg}`, '_blank')
     setDone(true)
   }
 
@@ -1203,7 +1203,7 @@ function RegisterModal({ championship, onClose, C }: { championship: Championshi
             </div>
             <p className="font-black mb-1" style={{ color: C.navy }}>Solicitação enviada!</p>
             <p className="text-sm leading-relaxed" style={{ color: C.text }}>
-              O Maikon vai confirmar sua vaga pelo WhatsApp. Pague na chegada.
+              Nossa equipe vai confirmar sua vaga pelo WhatsApp. Pague na chegada.
             </p>
             <button onClick={onClose}
               className="mt-5 w-full py-2.5 text-sm rounded-xl border transition-colors"
