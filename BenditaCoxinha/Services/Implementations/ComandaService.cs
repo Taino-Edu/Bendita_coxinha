@@ -1,0 +1,1107 @@
+﻿using System.Text.Json;
+using BenditaCoxinha.Data;
+using BenditaCoxinha.DTOs;
+using BenditaCoxinha.Hubs;
+using BenditaCoxinha.Models.PostgreSQL;
+using BenditaCoxinha.Services.Interfaces;
+using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
+
+namespace BenditaCoxinha.Services.Implementations;
+
+public class ComandaService : IComandaService
+{
+    // Fuso horÃ¡rio de BrasÃ­lia (UTC-3 fixo; BR nÃ£o usa horÃ¡rio de verÃ£o desde 2019).
+    // Funciona em Linux (IANA) e Windows (ID legado).
+    private static readonly TimeZoneInfo BrazilZone = GetBrazilZone();
+    private static TimeZoneInfo GetBrazilZone()
+    {
+        try { return TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo"); }
+        catch { return TimeZoneInfo.FindSystemTimeZoneById("E. South America Standard Time"); }
+    }
+
+    /// <summary>
+    /// Retorna o intervalo UTC correspondente a um dia no fuso de BrasÃ­lia.
+    /// Ex.: dia 29/05 BR â†’ [29/05 03:00 UTC, 30/05 03:00 UTC)
+    /// </summary>
+    private static (DateTime InicioUtc, DateTime FimUtc) DiaBrasil(DateTime? dia = null)
+    {
+        var agora    = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, BrazilZone);
+        var dataBr   = dia.HasValue ? dia.Value.Date : agora.Date;
+        var inicioUtc = TimeZoneInfo.ConvertTimeToUtc(
+            DateTime.SpecifyKind(dataBr, DateTimeKind.Unspecified), BrazilZone);
+        return (inicioUtc, inicioUtc.AddDays(1));
+    }
+
+    // Constantes para evitar magic strings sensÃ­veis a typo/case
+    private const string PaymentCrediario = "Crediario";
+    private const string PaymentPontos    = "Pontos";
+    private const string PaymentCashback  = "Cashback";
+
+    private readonly AppDbContext            _db;
+    private readonly IEmailService           _email;
+    private readonly ILogger<ComandaService> _logger;
+    private readonly IServiceScopeFactory    _scopeFactory;
+    private readonly IHubContext<ComandaHub> _hub;
+
+    public ComandaService(AppDbContext db, IEmailService email, ILogger<ComandaService> logger, IServiceScopeFactory scopeFactory, IHubContext<ComandaHub> hub)
+    {
+        _db           = db;
+        _email        = email;
+        _logger       = logger;
+        _scopeFactory = scopeFactory;
+        _hub          = hub;
+    }
+
+    public async Task<ComandaDto> OpenComandaAsync(Guid userId, string? tableIdentifier = null)
+    {
+        // Verifica se jÃ¡ existe uma comanda aberta ou em andamento para este usuÃ¡rio.
+        // Se existir, reutilizamos ela para evitar duplicidade (ex: cliente leu QR code duas vezes).
+        var comandaExistente = await _db.Comandas
+            .Include(c => c.Items)
+            .Include(c => c.User)
+            .Where(c => c.UserId == userId && (c.Status == ComandaStatus.Aberta || c.Status == ComandaStatus.EmAndamento))
+            .OrderByDescending(c => c.OpenedAt)
+            .FirstOrDefaultAsync();
+
+        if (comandaExistente != null)
+        {
+            _logger.LogInformation("Reutilizando comanda {Id} existente para usuÃ¡rio {UserId}", comandaExistente.Id, userId);
+            
+            // Se o identificador da mesa mudou (cliente trocou de lugar), atualizamos
+            if (!string.IsNullOrEmpty(tableIdentifier) && comandaExistente.TableIdentifier != tableIdentifier)
+            {
+                comandaExistente.TableIdentifier = tableIdentifier;
+                await _db.SaveChangesAsync();
+                
+                // Notifica o admin que a mesa da comanda mudou
+                await _hub.Clients.Group(ComandaHub.AdminGroup)
+                    .SendAsync("ComandaUpdated", new ComandaUpdateEvent
+                    {
+                        ComandaId       = comandaExistente.Id,
+                        UserId          = userId,
+                        UserName        = comandaExistente.User?.Name ?? string.Empty,
+                        TableIdentifier = tableIdentifier,
+                        TotalInReais    = comandaExistente.TotalInReais,
+                        Status          = comandaExistente.Status.ToString(),
+                        UpdatedAt       = DateTime.UtcNow,
+                    });
+            }
+
+            return MapToDto(comandaExistente);
+        }
+
+        // Se nÃ£o houver comanda ativa, cria uma nova
+        var comanda = new Comanda
+        {
+            UserId          = userId,
+            TableIdentifier = tableIdentifier,
+            Status          = ComandaStatus.Aberta,
+        };
+
+        _db.Comandas.Add(comanda);
+        await _db.SaveChangesAsync();
+        _logger.LogInformation("Comanda {Id} aberta para usuÃ¡rio {UserId}", comanda.Id, userId);
+
+        // Notifica o cliente (User_{userId}) que a comanda foi aberta pelo admin
+        await _hub.Clients.Group(ComandaHub.GetUserGroup(userId))
+            .SendAsync("ComandaOpened", new { ComandaId = comanda.Id, TableIdentifier = comanda.TableIdentifier });
+
+        // Notifica o admin (dashboard)
+        var userName = await _db.Users
+            .Where(u => u.Id == userId)
+            .Select(u => u.Name)
+            .FirstOrDefaultAsync() ?? string.Empty;
+        await _hub.Clients.Group(ComandaHub.AdminGroup)
+            .SendAsync("ComandaOpened", new { ComandaId = comanda.Id, UserId = userId, UserName = userName, TableIdentifier = comanda.TableIdentifier });
+
+        return MapToDto(comanda);
+    }
+
+    public async Task<ComandaDto?> GetActiveComandaAsync(Guid userId)
+    {
+        // Se houver mÃºltiplas abertas, retorna a mais recente
+        var comanda = await _db.Comandas
+            .Include(c => c.Items)
+            .Include(c => c.User)
+            .Where(c => c.UserId == userId &&
+                (c.Status == ComandaStatus.Aberta || c.Status == ComandaStatus.EmAndamento))
+            .OrderByDescending(c => c.OpenedAt)
+            .FirstOrDefaultAsync();
+
+        return comanda == null ? null : MapToDto(comanda);
+    }
+
+    public async Task<Guid?> GetActiveComandaIdByUserAsync(Guid userId)
+    {
+        // Se houver mÃºltiplas abertas, retorna a ID da mais recente
+        return await _db.Comandas
+            .Where(c => c.UserId == userId &&
+                (c.Status == ComandaStatus.Aberta || c.Status == ComandaStatus.EmAndamento))
+            .OrderByDescending(c => c.OpenedAt)
+            .Select(c => (Guid?)c.Id)
+            .FirstOrDefaultAsync();
+    }
+
+    public async Task<ComandaDto?> GetByIdAsync(Guid comandaId)
+    {
+        var comanda = await _db.Comandas
+            .Include(c => c.Items)
+            .Include(c => c.User)
+            .FirstOrDefaultAsync(c => c.Id == comandaId);
+
+        return comanda == null ? null : MapToDto(comanda);
+    }
+
+    public async Task<ComandaDto> AddItemAsync(Guid userId, AddItemToComandaRequest request)
+    {
+        if (request.Quantity <= 0)
+            throw new ArgumentException("Quantidade deve ser maior que zero.");
+
+        // Se houver mÃºltiplas abertas, adiciona Ã  mais recente
+        var comanda = await _db.Comandas
+            .Include(c => c.Items)
+            .Include(c => c.User)
+            .Where(c => c.UserId == userId &&
+                (c.Status == ComandaStatus.Aberta || c.Status == ComandaStatus.EmAndamento))
+            .OrderByDescending(c => c.OpenedAt)
+            .FirstOrDefaultAsync()
+            ?? throw new InvalidOperationException("Comanda ativa nÃ£o encontrada para este usuÃ¡rio.");
+
+        // Agrupa com item existente de mesmo produto (evita linhas duplicadas)
+        if (request.ProductId.HasValue)
+        {
+            var existing = comanda.Items.FirstOrDefault(i => i.ProductId == request.ProductId.Value);
+            if (existing != null)
+            {
+                var upd = await _db.Products
+                    .Where(p => p.Id == request.ProductId.Value && p.StockQuantity >= request.Quantity)
+                    .ExecuteUpdateAsync(s => s.SetProperty(p => p.StockQuantity, p => p.StockQuantity - request.Quantity));
+                if (upd == 0)
+                {
+                    var p = await _db.Products.FindAsync(request.ProductId.Value);
+                    throw new InvalidOperationException($"Estoque insuficiente para '{p?.Name ?? "produto"}'.");
+                }
+                var addedSubtotal        = existing.UnitPriceInCents * request.Quantity;
+                existing.Quantity       += request.Quantity;
+                existing.SubtotalInCents += addedSubtotal;
+                comanda.TotalInCents    += addedSubtotal;
+                comanda.Status           = ComandaStatus.EmAndamento;
+                await _db.SaveChangesAsync();
+                await _hub.Clients.Group(ComandaHub.AdminGroup)
+                    .SendAsync("ComandaUpdated", new ComandaUpdateEvent
+                    {
+                        ComandaId       = comanda.Id,
+                        UserId          = userId,
+                        UserName        = comanda.User?.Name ?? string.Empty,
+                        TableIdentifier = comanda.TableIdentifier,
+                        TotalInReais    = comanda.TotalInReais,
+                        Status          = comanda.Status.ToString(),
+                        LastItemAdded   = existing.ItemNameSnapshot,
+                        UpdatedAt       = DateTime.UtcNow,
+                    });
+                return MapToDto(comanda);
+            }
+        }
+
+        var (itemName, priceInCents, costInCents) = await ResolveItemAsync(request);
+
+        var item = new ComandaItem
+        {
+            ComandaId                = comanda.Id,
+            ProductId                = request.ProductId,
+            CardCacheId              = request.CardCacheId,
+            ItemNameSnapshot         = itemName,
+            UnitPriceInCents         = priceInCents,
+            CostPriceSnapshotInCents = costInCents,
+            Quantity                 = request.Quantity,
+            SubtotalInCents          = priceInCents * request.Quantity,
+            AddedByUserId            = userId,
+        };
+
+        // _db.Add ensures EntityState.Added; navigation fixup populates comanda.Items.
+        // Using comanda.Items.Add alone causes EF to infer Modified (not Added) for
+        // entities with a pre-set client-generated GUID key.
+        _db.Add(item);
+        comanda.Status        = ComandaStatus.EmAndamento;
+        comanda.TotalInCents += item.SubtotalInCents;
+
+        await _db.SaveChangesAsync();
+
+        // Notifica o admin sobre o item adicionado pelo cliente
+        await _hub.Clients.Group(ComandaHub.AdminGroup)
+            .SendAsync("ComandaUpdated", new ComandaUpdateEvent
+            {
+                ComandaId       = comanda.Id,
+                UserId          = userId,
+                UserName        = comanda.User?.Name ?? string.Empty,
+                TableIdentifier = comanda.TableIdentifier,
+                TotalInReais    = comanda.TotalInReais,
+                Status          = comanda.Status.ToString(),
+                LastItemAdded   = item.ItemNameSnapshot,
+                UpdatedAt       = DateTime.UtcNow,
+            });
+
+        return MapToDto(comanda);
+    }
+
+    public async Task<ComandaDto> AdminAddItemAsync(Guid comandaId, Guid adminId, AddItemToComandaRequest request)
+    {
+        if (request.Quantity <= 0)
+            throw new ArgumentException("Quantidade deve ser maior que zero.");
+
+        var comanda = await _db.Comandas
+            .Include(c => c.Items)
+            .Include(c => c.User)
+            .FirstOrDefaultAsync(c => c.Id == comandaId)
+            ?? throw new InvalidOperationException($"Comanda {comandaId} nÃ£o encontrada.");
+
+        // Agrupa com item existente de mesmo produto (evita linhas duplicadas)
+        if (request.ProductId.HasValue)
+        {
+            var existing = comanda.Items.FirstOrDefault(i => i.ProductId == request.ProductId.Value);
+            if (existing != null)
+            {
+                var upd = await _db.Products
+                    .Where(p => p.Id == request.ProductId.Value && p.StockQuantity >= request.Quantity)
+                    .ExecuteUpdateAsync(s => s.SetProperty(p => p.StockQuantity, p => p.StockQuantity - request.Quantity));
+                if (upd == 0)
+                {
+                    var p = await _db.Products.FindAsync(request.ProductId.Value);
+                    throw new InvalidOperationException($"Estoque insuficiente para '{p?.Name ?? "produto"}'.");
+                }
+                var addedSubtotal        = existing.UnitPriceInCents * request.Quantity;
+                existing.Quantity       += request.Quantity;
+                existing.SubtotalInCents += addedSubtotal;
+                comanda.TotalInCents    += addedSubtotal;
+                comanda.Status           = ComandaStatus.EmAndamento;
+                await _db.SaveChangesAsync();
+                await _hub.Clients.Group(ComandaHub.GetComandaGroup(comandaId))
+                    .SendAsync("ItemAddedByAdmin", new { ItemName = existing.ItemNameSnapshot, NewTotalInReais = comanda.TotalInReais });
+                await _hub.Clients.Group(ComandaHub.AdminGroup)
+                    .SendAsync("ComandaUpdated", new ComandaUpdateEvent
+                    {
+                        ComandaId       = comanda.Id,
+                        UserId          = comanda.UserId,
+                        UserName        = comanda.User?.Name ?? string.Empty,
+                        TableIdentifier = comanda.TableIdentifier,
+                        TotalInReais    = comanda.TotalInReais,
+                        Status          = comanda.Status.ToString(),
+                        LastItemAdded   = existing.ItemNameSnapshot,
+                        UpdatedAt       = DateTime.UtcNow,
+                    });
+                return MapToDto(comanda);
+            }
+        }
+
+        var (itemName, priceInCents, costInCents) = await ResolveItemAsync(request);
+
+        var item = new ComandaItem
+        {
+            ComandaId                = comanda.Id,
+            ProductId                = request.ProductId,
+            CardCacheId              = request.CardCacheId,
+            ItemNameSnapshot         = itemName,
+            UnitPriceInCents         = priceInCents,
+            CostPriceSnapshotInCents = costInCents,
+            Quantity                 = request.Quantity,
+            SubtotalInCents          = priceInCents * request.Quantity,
+            AddedByUserId            = adminId,
+        };
+
+        _db.Add(item);
+        comanda.Status        = ComandaStatus.EmAndamento;
+        comanda.TotalInCents += item.SubtotalInCents;
+
+        await _db.SaveChangesAsync();
+
+        // Notifica o cliente na comanda que o admin adicionou um item
+        await _hub.Clients.Group(ComandaHub.GetComandaGroup(comandaId))
+            .SendAsync("ItemAddedByAdmin", new
+            {
+                ItemName        = item.ItemNameSnapshot,
+                NewTotalInReais = comanda.TotalInReais,
+            });
+        // Notifica o admin (outros painÃ©is)
+        await _hub.Clients.Group(ComandaHub.AdminGroup)
+            .SendAsync("ComandaUpdated", new ComandaUpdateEvent
+            {
+                ComandaId       = comanda.Id,
+                UserId          = comanda.UserId,
+                UserName        = comanda.User?.Name ?? string.Empty,
+                TableIdentifier = comanda.TableIdentifier,
+                TotalInReais    = comanda.TotalInReais,
+                Status          = comanda.Status.ToString(),
+                LastItemAdded   = item.ItemNameSnapshot,
+                UpdatedAt       = DateTime.UtcNow,
+            });
+
+        return MapToDto(comanda);
+    }
+
+    public async Task<ComandaDto> RemoveItemAsync(Guid comandaId, Guid itemId, Guid requestingUserId)
+    {
+        var item = await _db.ComandaItems.FindAsync(itemId)
+            ?? throw new InvalidOperationException("Item nÃ£o encontrado.");
+
+        // Garante que o item pertence Ã  comanda informada (evita remoÃ§Ã£o cruzada)
+        if (item.ComandaId != comandaId)
+            throw new InvalidOperationException("Item nÃ£o pertence a esta comanda.");
+
+        var comanda = await _db.Comandas
+            .Include(c => c.Items)
+            .Include(c => c.User)
+            .FirstAsync(c => c.Id == comandaId);
+
+        comanda.TotalInCents = Math.Max(0, comanda.TotalInCents - item.SubtotalInCents);
+
+        if (item.ProductId.HasValue)
+        {
+            await _db.Products
+                .Where(p => p.Id == item.ProductId.Value)
+                .ExecuteUpdateAsync(s => s.SetProperty(
+                    p => p.StockQuantity, p => p.StockQuantity + item.Quantity));
+        }
+
+        // Ajusta pontos aplicados se o total ficou menor que o desconto
+        if (comanda.PointsApplied > comanda.TotalInCents)
+        {
+            var excess = comanda.PointsApplied - comanda.TotalInCents;
+            comanda.PointsApplied = comanda.TotalInCents;
+            comanda.User!.PointsBalance += excess;
+        }
+
+        _db.ComandaItems.Remove(item);
+
+        if (comanda.Items.Count(i => i.Id != itemId) == 0)
+            comanda.Status = ComandaStatus.Aberta;
+
+        await _db.SaveChangesAsync();
+
+        var dto = MapToDto(comanda);
+        // Notifica cliente e admin da remoÃ§Ã£o
+        await _hub.Clients.Group(ComandaHub.GetComandaGroup(comandaId))
+            .SendAsync("ComandaUpdated", new { ComandaId = comandaId, NewTotalInReais = dto.TotalInReais });
+        await _hub.Clients.Group(ComandaHub.AdminGroup)
+            .SendAsync("ComandaUpdated", new ComandaUpdateEvent
+            {
+                ComandaId       = dto.Id,
+                UserId          = dto.UserId,
+                UserName        = dto.UserName,
+                TableIdentifier = dto.TableIdentifier,
+                TotalInReais    = dto.TotalInReais,
+                Status          = dto.Status,
+                UpdatedAt       = DateTime.UtcNow,
+            });
+
+        return dto;
+    }
+
+    public async Task<ComandaDto> UpdateItemAsync(Guid comandaId, Guid itemId, int newQuantity, Guid adminId)
+    {
+        var item = await _db.ComandaItems.FindAsync(itemId)
+            ?? throw new InvalidOperationException("Item nÃ£o encontrado.");
+
+        if (item.ComandaId != comandaId)
+            throw new InvalidOperationException("Item nÃ£o pertence a esta comanda.");
+
+        var comanda = await _db.Comandas
+            .Include(c => c.Items)
+            .Include(c => c.User)
+            .FirstAsync(c => c.Id == comandaId);
+
+        if (comanda.Status == ComandaStatus.Fechada || comanda.Status == ComandaStatus.Cancelada)
+            throw new InvalidOperationException("NÃ£o Ã© possÃ­vel editar itens de uma comanda encerrada.");
+
+        // Quantity == 0 â†’ remover item
+        if (newQuantity <= 0)
+            return await RemoveItemAsync(comandaId, itemId, adminId);
+
+        var oldSubtotal = item.SubtotalInCents;
+        var diff        = item.UnitPriceInCents * newQuantity - oldSubtotal;
+
+        // Ajusta estoque fÃ­sico
+        if (item.ProductId.HasValue)
+        {
+            var delta = item.Quantity - newQuantity; // positivo = devolve, negativo = retira
+            await _db.Products
+                .Where(p => p.Id == item.ProductId.Value)
+                .ExecuteUpdateAsync(s => s.SetProperty(
+                    p => p.StockQuantity, p => p.StockQuantity + delta));
+        }
+
+        item.Quantity       = newQuantity;
+        item.SubtotalInCents = item.UnitPriceInCents * newQuantity;
+        comanda.TotalInCents = Math.Max(0, comanda.TotalInCents + diff);
+
+        // Ajusta pontos se o total ficou menor que o desconto aplicado
+        if (comanda.PointsApplied > comanda.TotalInCents)
+        {
+            var excess = comanda.PointsApplied - comanda.TotalInCents;
+            comanda.PointsApplied  = comanda.TotalInCents;
+            comanda.User!.PointsBalance += excess;
+        }
+
+        _logger.LogInformation(
+            "Item {ItemId} da comanda {ComandaId} atualizado para qty={Qty} pelo admin {AdminId}",
+            itemId, comandaId, newQuantity, adminId);
+
+        await _db.SaveChangesAsync();
+
+        var dto = MapToDto(comanda);
+        // Notifica cliente e admin da atualizaÃ§Ã£o de quantidade
+        await _hub.Clients.Group(ComandaHub.GetComandaGroup(comandaId))
+            .SendAsync("ComandaUpdated", new { ComandaId = comandaId, NewTotalInReais = dto.TotalInReais });
+        await _hub.Clients.Group(ComandaHub.AdminGroup)
+            .SendAsync("ComandaUpdated", new ComandaUpdateEvent
+            {
+                ComandaId       = dto.Id,
+                UserId          = dto.UserId,
+                UserName        = dto.UserName,
+                TableIdentifier = dto.TableIdentifier,
+                TotalInReais    = dto.TotalInReais,
+                Status          = dto.Status,
+                UpdatedAt       = DateTime.UtcNow,
+            });
+
+        return dto;
+    }
+
+    public async Task<ComandaDto> CloseComandaAsync(Guid comandaId, Guid adminId, string paymentMethod = "Dinheiro", string? observacao = null, string? secondPaymentMethod = null, int secondPaymentAmountInCents = 0, Guid? crediarioExistenteId = null)
+    {
+        var comanda = await _db.Comandas
+            .Include(c => c.Items)
+            .Include(c => c.User)
+            .FirstOrDefaultAsync(c => c.Id == comandaId)
+            ?? throw new InvalidOperationException($"Comanda {comandaId} nÃ£o encontrada.");
+
+        // Total lÃ­quido: desconta pontos que o cliente jÃ¡ prÃ©-pagou via ApplyPoints.
+        var netTotal = Math.Max(0, comanda.TotalInCents - comanda.PointsApplied);
+
+        // â”€â”€ Split payment: valida e processa segundo mÃ©todo â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        var hasSecond = secondPaymentAmountInCents > 0 && !string.IsNullOrEmpty(secondPaymentMethod);
+        if (hasSecond && secondPaymentAmountInCents >= netTotal)
+            throw new InvalidOperationException("O valor do segundo pagamento nÃ£o pode cobrir o total inteiro. Selecione apenas o mÃ©todo principal.");
+
+        var primaryAmt = hasSecond ? netTotal - secondPaymentAmountInCents : netTotal;
+
+        if (hasSecond)
+        {
+            if (comanda.User == null)
+                throw new InvalidOperationException("UsuÃ¡rio nÃ£o encontrado para processar segundo pagamento.");
+
+            if (secondPaymentMethod == PaymentCashback)
+            {
+                if (comanda.User.BalanceInCents < secondPaymentAmountInCents)
+                    throw new InvalidOperationException(
+                        $"Saldo de cashback insuficiente. Cliente tem R$ {comanda.User.BalanceInCents / 100m:N2}, solicitado R$ {secondPaymentAmountInCents / 100m:N2}.");
+                comanda.User.BalanceInCents -= secondPaymentAmountInCents;
+                comanda.User.UpdatedAt       = DateTime.UtcNow;
+                _logger.LogInformation("Split: R$ {Val:N2} de cashback aplicado na comanda {Id}.", secondPaymentAmountInCents / 100m, comandaId);
+            }
+            else if (secondPaymentMethod == PaymentPontos)
+            {
+                if (comanda.User.PointsExpiresAt.HasValue && comanda.User.PointsExpiresAt.Value < DateTime.UtcNow)
+                    throw new InvalidOperationException("Os pontos do cliente estÃ£o expirados.");
+                if (comanda.User.PointsBalance < secondPaymentAmountInCents)
+                    throw new InvalidOperationException(
+                        $"Saldo de pontos insuficiente. Cliente tem {comanda.User.PointsBalance} pts, solicitado {secondPaymentAmountInCents} pts.");
+                comanda.User.PointsBalance -= secondPaymentAmountInCents;
+                comanda.User.UpdatedAt      = DateTime.UtcNow;
+                _logger.LogInformation("Split: {Pts} pontos aplicados na comanda {Id}.", secondPaymentAmountInCents, comandaId);
+            }
+            // MÃ©todos fÃ­sicos (Dinheiro/Pix/CartÃ£o) como segundo: apenas registra, sem aÃ§Ã£o
+
+            comanda.SecondPaymentMethod        = secondPaymentMethod;
+            comanda.SecondPaymentAmountInCents = secondPaymentAmountInCents;
+        }
+
+        // â”€â”€ CrediÃ¡rio â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        if (paymentMethod == PaymentCrediario)
+        {
+            if (crediarioExistenteId.HasValue)
+            {
+                // Admin escolheu acumular em uma conta jÃ¡ aberta â€” sem renovar prazo
+                var existente = await _db.Crediarios
+                    .Include(cr => cr.Comanda).ThenInclude(cmd => cmd!.Items)
+                    .FirstOrDefaultAsync(cr => cr.Id == crediarioExistenteId.Value)
+                    ?? throw new InvalidOperationException("CrediÃ¡rio selecionado nÃ£o encontrado.");
+
+                if (existente.UserId != comanda.UserId)
+                    throw new InvalidOperationException("O crediÃ¡rio selecionado nÃ£o pertence ao cliente desta comanda.");
+
+                if (existente.Status != CrediariosStatus.Aberto)
+                    throw new InvalidOperationException("O crediÃ¡rio selecionado jÃ¡ foi quitado.");
+
+                existente.ValorEmCentavos += primaryAmt;
+                if (!string.IsNullOrWhiteSpace(observacao))
+                    existente.Observacao = observacao;
+
+                // Serializa os itens da nova comanda em ItensJson para que o MapToDto
+                // os exiba corretamente sem depender de date-range.
+                // Na primeira acumulaÃ§Ã£o: se a conta original tinha ComandaId, migra
+                // os itens da comanda original para ItensJson primeiro.
+                var novosItens = comanda.Items
+                    .OrderBy(i => i.AddedAt)
+                    .Select(i => new ItemCrediarioDto
+                    {
+                        ItemName         = i.ItemNameSnapshot,
+                        Quantity         = i.Quantity,
+                        UnitPriceInReais = i.UnitPriceInCents / 100m,
+                        SubtotalInReais  = i.SubtotalInCents  / 100m,
+                    }).ToList();
+
+                List<ItemCrediarioDto> itensAcumulados;
+                if (string.IsNullOrWhiteSpace(existente.ItensJson))
+                {
+                    // Primeira acumulaÃ§Ã£o â€” migra itens da comanda original (se houver)
+                    var originais = existente.Comanda?.Items
+                        .OrderBy(i => i.AddedAt)
+                        .Select(i => new ItemCrediarioDto
+                        {
+                            ItemName         = i.ItemNameSnapshot,
+                            Quantity         = i.Quantity,
+                            UnitPriceInReais = i.UnitPriceInCents / 100m,
+                            SubtotalInReais  = i.SubtotalInCents  / 100m,
+                        }) ?? Enumerable.Empty<ItemCrediarioDto>();
+
+                    itensAcumulados = originais.Concat(novosItens).ToList();
+                }
+                else
+                {
+                    itensAcumulados = JsonSerializer.Deserialize<List<ItemCrediarioDto>>(existente.ItensJson)
+                        ?? new List<ItemCrediarioDto>();
+                    itensAcumulados.AddRange(novosItens);
+                }
+
+                existente.ItensJson = JsonSerializer.Serialize(itensAcumulados);
+
+                _logger.LogInformation(
+                    "Comanda {CmdId} acumulada no crediÃ¡rio {CredId} do usuÃ¡rio {UserId} â€” +R$ {Valor:N2}, novo total R$ {Total:N2}",
+                    comandaId, existente.Id, comanda.UserId, primaryAmt / 100m, existente.ValorEmCentavos / 100m);
+            }
+            else
+            {
+                // Cria conta nova com prazo prÃ³prio de 30 dias
+                var vencimento = DateTime.UtcNow.AddDays(30);
+                var crediario  = new Crediario
+                {
+                    UserId           = comanda.UserId,
+                    ComandaId        = comanda.Id,
+                    ValorEmCentavos  = primaryAmt,
+                    DataAbertura     = DateTime.UtcNow,
+                    DataVencimento   = vencimento,
+                    Status           = CrediariosStatus.Aberto,
+                    AbertoPorAdminId = adminId,
+                    Observacao       = observacao,
+                };
+
+                _db.Crediarios.Add(crediario);
+                _logger.LogInformation(
+                    "CrediÃ¡rio {CredId} criado para usuÃ¡rio {UserId} â€” R$ {Valor:N2}, vence em {Venc:dd/MM/yyyy}",
+                    crediario.Id, comanda.UserId, crediario.ValorEmReais, vencimento);
+
+                if (!string.IsNullOrWhiteSpace(comanda.User?.Email))
+                {
+                    var emailAddr  = comanda.User.Email;
+                    var userName   = comanda.User.Name;
+                    var valorReais = crediario.ValorEmReais;
+                    var venc       = vencimento;
+                    _ = Task.Run(async () =>
+                    {
+                        using var scope  = _scopeFactory.CreateScope();
+                        var emailService = scope.ServiceProvider.GetRequiredService<IEmailService>();
+                        await emailService.SendCrediarioAbertoAsync(emailAddr, userName, valorReais, venc);
+                    });
+                }
+            }
+        }
+
+        // â”€â”€ Pontos como pagamento principal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        if (paymentMethod == PaymentPontos)
+        {
+            if (comanda.User == null)
+                throw new InvalidOperationException("UsuÃ¡rio nÃ£o encontrado.");
+
+            if (comanda.User.PointsBalance < primaryAmt)
+                throw new InvalidOperationException(
+                    $"Saldo de pontos insuficiente. Cliente tem {comanda.User.PointsBalance} pts, faltam {primaryAmt} pts.");
+
+            comanda.User.PointsBalance -= primaryAmt;
+            comanda.User.UpdatedAt      = DateTime.UtcNow;
+            _logger.LogInformation(
+                "Comanda {Id} quitada com {Pts} pontos do usuÃ¡rio {UserId}. Saldo restante: {Saldo}",
+                comandaId, primaryAmt, comanda.UserId, comanda.User.PointsBalance);
+        }
+
+        // â”€â”€ Cashback como pagamento principal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        if (paymentMethod == PaymentCashback)
+        {
+            if (comanda.User == null)
+                throw new InvalidOperationException("UsuÃ¡rio nÃ£o encontrado.");
+
+            if (comanda.User.BalanceInCents < primaryAmt)
+                throw new InvalidOperationException(
+                    $"Saldo insuficiente. Cliente tem R$ {comanda.User.BalanceInCents / 100m:N2}, falta R$ {primaryAmt / 100m:N2}.");
+
+            comanda.User.BalanceInCents -= primaryAmt;
+            comanda.User.UpdatedAt       = DateTime.UtcNow;
+            _logger.LogInformation(
+                "Comanda {Id} quitada com R$ {Valor:N2} de cashback do usuÃ¡rio {UserId}. Saldo restante: R$ {Saldo:N2}",
+                comandaId, primaryAmt / 100m, comanda.UserId, comanda.User.BalanceInCents / 100m);
+        }
+
+        // Grava o total lÃ­quido (o que o cliente efetivamente pagou, apÃ³s desconto de pontos prÃ©-aplicados)
+        comanda.TotalInCents  = netTotal;
+        comanda.Status        = ComandaStatus.Fechada;
+        comanda.ClosedAt      = DateTime.UtcNow;
+        comanda.PaymentMethod = paymentMethod;
+
+        // â”€â”€ Pontos de fidelidade â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // NÃ£o acumula quando qualquer parte do pagamento usa cashback, pontos ou crediÃ¡rio.
+        if (comanda.User != null && paymentMethod != PaymentCrediario
+                                 && paymentMethod != PaymentPontos
+                                 && paymentMethod != PaymentCashback
+                                 && secondPaymentMethod != PaymentCashback)
+        {
+            // Base para acÃºmulo: exclui parcela paga em pontos no segundo mÃ©todo
+            var baseParaPontos = (hasSecond && secondPaymentMethod == PaymentPontos)
+                ? primaryAmt
+                : netTotal;
+
+            var pontosGanhos = baseParaPontos / 100;
+            if (pontosGanhos > 0)
+            {
+                if (comanda.User.PointsExpiresAt.HasValue && comanda.User.PointsExpiresAt.Value < DateTime.UtcNow)
+                    comanda.User.PointsBalance = 0;
+                comanda.User.PointsBalance  += pontosGanhos;
+                comanda.User.PointsExpiresAt = DateTime.UtcNow.AddDays(30);
+                _logger.LogInformation(
+                    "UsuÃ¡rio {UserId} ganhou {Pontos} pontos na comanda {ComandaId}.",
+                    comanda.UserId, pontosGanhos, comandaId);
+            }
+        }
+
+        await _db.SaveChangesAsync();
+
+        var dto = MapToDto(comanda);
+        // Notifica o cliente que a comanda foi fechada
+        await _hub.Clients.Group(ComandaHub.GetComandaGroup(comandaId))
+            .SendAsync("ComandaClosed", new { ComandaId = comandaId, PaymentMethod = paymentMethod });
+        // Notifica o admin
+        await _hub.Clients.Group(ComandaHub.AdminGroup)
+            .SendAsync("ComandaClosed", new
+            {
+                ComandaId     = comandaId,
+                UserId        = comanda.UserId,
+                UserName      = dto.UserName,
+                TotalInReais  = dto.TotalInReais,
+                PaymentMethod = paymentMethod,
+            });
+
+        return dto;
+    }
+
+    public async Task<ComandaDto> CancelComandaAsync(Guid comandaId, Guid adminId)
+    {
+        var comanda = await _db.Comandas
+            .Include(c => c.Items)
+            .Include(c => c.User)
+            .FirstOrDefaultAsync(c => c.Id == comandaId)
+            ?? throw new InvalidOperationException($"Comanda {comandaId} nÃ£o encontrada.");
+
+        foreach (var item in comanda.Items.Where(i => i.ProductId.HasValue))
+        {
+            await _db.Products
+                .Where(p => p.Id == item.ProductId!.Value)
+                .ExecuteUpdateAsync(s => s.SetProperty(
+                    p => p.StockQuantity, p => p.StockQuantity + item.Quantity));
+        }
+
+        // Devolve pontos que o cliente havia aplicado nesta comanda
+        if (comanda.PointsApplied > 0 && comanda.User != null)
+        {
+            comanda.User.PointsBalance += comanda.PointsApplied;
+            comanda.User.UpdatedAt      = DateTime.UtcNow;
+            _logger.LogInformation(
+                "Comanda {Id} cancelada â€” {Pts} pontos devolvidos ao usuÃ¡rio {UserId}.",
+                comandaId, comanda.PointsApplied, comanda.UserId);
+        }
+
+        comanda.Status   = ComandaStatus.Cancelada;
+        comanda.ClosedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+
+        _logger.LogInformation("Comanda {Id} cancelada â€” estoque restaurado para {Count} produto(s).",
+            comandaId, comanda.Items.Count(i => i.ProductId.HasValue));
+
+        // Notifica o cliente que a comanda foi cancelada
+        await _hub.Clients.Group(ComandaHub.GetComandaGroup(comandaId))
+            .SendAsync("ComandaCancelled", new { ComandaId = comandaId });
+        // Notifica o admin
+        await _hub.Clients.Group(ComandaHub.AdminGroup)
+            .SendAsync("ComandaCancelled", new { ComandaId = comandaId, UserId = comanda.UserId });
+
+        return MapToDto(comanda);
+    }
+
+    public async Task<IEnumerable<ComandaDto>> GetActiveCommandasForDashboardAsync()
+    {
+        var comandas = await _db.Comandas
+            .Include(c => c.Items)
+            .Include(c => c.User)
+            .Where(c => c.Status == ComandaStatus.Aberta || c.Status == ComandaStatus.EmAndamento)
+            .OrderByDescending(c => c.OpenedAt)
+            .ToListAsync();
+
+        return comandas.Select(MapToDto).ToList();
+    }
+
+    public async Task<IEnumerable<ComandaDto>> GetUserHistoryAsync(Guid userId, int limit = 20)
+    {
+        var comandas = await _db.Comandas
+            .Include(c => c.Items)
+            .Include(c => c.User)
+            .Where(c => c.UserId == userId &&
+                (c.Status == ComandaStatus.Fechada || c.Status == ComandaStatus.Cancelada))
+            .OrderByDescending(c => c.ClosedAt)
+            .Take(limit)
+            .ToListAsync();
+
+        return comandas.Select(MapToDto).ToList();
+    }
+
+    public async Task<IEnumerable<ComandaDto>> GetTodayHistoryAsync(DateTime? data = null)
+    {
+        // Usa intervalo UTC calculado a partir do fuso de BrasÃ­lia.
+        // Sem isso, uma comanda fechada Ã s 22h30 BR (= 01h30 UTC do dia seguinte)
+        // aparecia incorretamente como "hoje" no dashboard.
+        var (inicioUtc, fimUtc) = DiaBrasil(data);
+
+        var comandas = await _db.Comandas
+            .Include(c => c.Items)
+            .Include(c => c.User)
+            .Where(c => (c.Status == ComandaStatus.Fechada || c.Status == ComandaStatus.Cancelada)
+                     && c.ClosedAt.HasValue
+                     && c.ClosedAt.Value >= inicioUtc
+                     && c.ClosedAt.Value <  fimUtc)
+            .OrderByDescending(c => c.ClosedAt)
+            .ToListAsync();
+
+        return comandas.Select(MapToDto).ToList();
+    }
+
+    public async Task<ComandaDto> ApplyPointsAsync(Guid comandaId, Guid userId, int points)
+    {
+        var comanda = await _db.Comandas
+            .Include(c => c.Items)
+            .Include(c => c.User)
+            .FirstOrDefaultAsync(c => c.Id == comandaId)
+            ?? throw new InvalidOperationException("Comanda nÃ£o encontrada.");
+
+        if (comanda.UserId != userId)
+            throw new InvalidOperationException("VocÃª sÃ³ pode usar pontos na sua prÃ³pria comanda.");
+
+        if (comanda.Status == ComandaStatus.Fechada || comanda.Status == ComandaStatus.Cancelada)
+            throw new InvalidOperationException("NÃ£o Ã© possÃ­vel aplicar pontos em comanda encerrada.");
+
+        if (comanda.PointsApplied > 0)
+            throw new InvalidOperationException("Pontos jÃ¡ foram aplicados nesta comanda.");
+
+        var user = await _db.Users.FindAsync(userId)
+            ?? throw new InvalidOperationException("UsuÃ¡rio nÃ£o encontrado.");
+
+        if (user.PointsExpiresAt.HasValue && user.PointsExpiresAt.Value < DateTime.UtcNow)
+            throw new InvalidOperationException("Seus pontos estÃ£o expirados.");
+
+        if (user.PointsBalance < points)
+            throw new InvalidOperationException($"Saldo insuficiente. VocÃª tem {user.PointsBalance} pontos.");
+
+        // NÃ£o permite abater mais do que o total da comanda
+        var pontosAplicados = Math.Min(points, comanda.TotalInCents);
+
+        user.PointsBalance   -= pontosAplicados;
+        user.UpdatedAt        = DateTime.UtcNow;
+        comanda.PointsApplied = pontosAplicados;
+
+        await _db.SaveChangesAsync();
+        _logger.LogInformation("UsuÃ¡rio {UserId} aplicou {Points} pontos na comanda {ComandaId}.",
+            userId, pontosAplicados, comandaId);
+
+        return MapToDto(comanda);
+    }
+
+    public async Task<ComandaDto> RemovePointsAsync(Guid comandaId, Guid requestingUserId)
+    {
+        var comanda = await _db.Comandas
+            .Include(c => c.Items)
+            .Include(c => c.User)
+            .FirstOrDefaultAsync(c => c.Id == comandaId)
+            ?? throw new InvalidOperationException("Comanda nÃ£o encontrada.");
+
+        if (comanda.Status == ComandaStatus.Fechada || comanda.Status == ComandaStatus.Cancelada)
+            throw new InvalidOperationException("NÃ£o Ã© possÃ­vel remover pontos de comanda encerrada.");
+
+        if (comanda.PointsApplied == 0)
+            throw new InvalidOperationException("NÃ£o hÃ¡ pontos aplicados nesta comanda.");
+
+        // Valida permissÃ£o: deve ser o dono da comanda ou um Admin
+        var isOwner = comanda.UserId == requestingUserId;
+        if (!isOwner)
+        {
+            var requestingUser = await _db.Users.FindAsync(requestingUserId)
+                ?? throw new UnauthorizedAccessException("UsuÃ¡rio solicitante nÃ£o encontrado.");
+            if (requestingUser.Role != UserRole.Admin)
+                throw new UnauthorizedAccessException("Sem permissÃ£o para remover pontos desta comanda.");
+        }
+
+        var user = await _db.Users.FindAsync(comanda.UserId)
+            ?? throw new InvalidOperationException("UsuÃ¡rio da comanda nÃ£o encontrado.");
+
+        var pontosDevolvidos   = comanda.PointsApplied;
+        user.PointsBalance    += pontosDevolvidos;
+        user.UpdatedAt         = DateTime.UtcNow;
+        comanda.PointsApplied  = 0;
+
+        await _db.SaveChangesAsync();
+
+        _logger.LogInformation(
+            "Pontos removidos da comanda {ComandaId} por {RequestingUserId}. {Points} pts devolvidos ao usuÃ¡rio {UserId}.",
+            comandaId, requestingUserId, pontosDevolvidos, comanda.UserId);
+
+        var dto = MapToDto(comanda);
+
+        // Notifica o cliente que os pontos foram removidos
+        await _hub.Clients.Group(ComandaHub.GetComandaGroup(comandaId))
+            .SendAsync("ComandaUpdated", new { ComandaId = comandaId, NewTotalInReais = dto.TotalInReais });
+        // Notifica o admin (dashboard)
+        await _hub.Clients.Group(ComandaHub.AdminGroup)
+            .SendAsync("ComandaUpdated", new ComandaUpdateEvent
+            {
+                ComandaId  = dto.Id,
+                UserId     = dto.UserId,
+                UserName   = comanda.User?.Name ?? string.Empty,
+                Status     = dto.Status,
+                LastItemAdded = "(pontos removidos)",
+                UpdatedAt  = DateTime.UtcNow,
+            });
+
+        return dto;
+    }
+
+    // â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    /// <summary>
+    /// Resolve nome e preÃ§o do item. Se vier ProductId, busca do banco e ignora
+    /// o que o cliente enviou â€” nunca confiar em preÃ§o vindo da requisiÃ§Ã£o.
+    /// </summary>
+    private async Task<(string name, int priceInCents, int costInCents)> ResolveItemAsync(AddItemToComandaRequest request)
+    {
+        if (!request.ProductId.HasValue)
+        {
+            if (string.IsNullOrWhiteSpace(request.ItemName))
+                throw new ArgumentException("Nome do item Ã© obrigatÃ³rio para itens sem produto cadastrado.");
+            return (request.ItemName, request.UnitPriceInCents, 0);
+        }
+
+        var product = await _db.Products.FindAsync(request.ProductId.Value)
+            ?? throw new InvalidOperationException("Produto nÃ£o encontrado.");
+
+        if (!product.IsActive)
+            throw new InvalidOperationException("Produto inativo e nÃ£o pode ser adicionado.");
+
+        if (product.StockQuantity < request.Quantity)
+            throw new InvalidOperationException(
+                $"Estoque insuficiente para '{product.Name}'. DisponÃ­vel: {product.StockQuantity} un.");
+
+        // Decremento atÃ´mico: UPDATE ... WHERE stock >= qty
+        // Evita race condition em vendas simultÃ¢neas (estoque negativo)
+        var updated = await _db.Products
+            .Where(p => p.Id == product.Id && p.StockQuantity >= request.Quantity)
+            .ExecuteUpdateAsync(s => s.SetProperty(
+                p => p.StockQuantity, p => p.StockQuantity - request.Quantity));
+
+        if (updated == 0)
+            throw new InvalidOperationException(
+                $"Estoque insuficiente para '{product.Name}' (atualizado por outra venda simultÃ¢nea).");
+
+        // MantÃ©m o objeto local sincronizado para o SaveChanges final
+        product.StockQuantity -= request.Quantity;
+        var effectivePrice = product.IsOnPromo ? product.DiscountPriceInCents!.Value : product.PriceInCents;
+        return (product.Name, effectivePrice, product.CostPriceInCents);
+    }
+
+    // =========================================================================
+    // EDITAR COMANDA FECHADA â€” Admin only
+    // =========================================================================
+
+    public async Task<ComandaDto> EditarComandaFechadaAsync(Guid comandaId, Guid adminId, EditarComandaRequest request)
+    {
+        var comanda = await _db.Comandas
+            .Include(c => c.Items)
+            .Include(c => c.User)
+            .FirstOrDefaultAsync(c => c.Id == comandaId)
+            ?? throw new InvalidOperationException($"Comanda {comandaId} nÃ£o encontrada.");
+
+        if (comanda.Status != ComandaStatus.Fechada)
+            throw new InvalidOperationException("Somente comandas com status 'Fechada' podem ser editadas.");
+
+        // 1. Forma de pagamento
+        if (request.PaymentMethod != null)
+            comanda.PaymentMethod = request.PaymentMethod;
+
+        if (request.SecondPaymentMethod != null)
+            comanda.SecondPaymentMethod = request.SecondPaymentMethod == "" ? null : request.SecondPaymentMethod;
+
+        if (request.SecondPaymentAmountInCents.HasValue)
+            comanda.SecondPaymentAmountInCents = request.SecondPaymentAmountInCents.Value;
+
+        // 2. Desconto
+        if (request.DescontoEmCentavos.HasValue)
+            comanda.PointsApplied = Math.Max(0, request.DescontoEmCentavos.Value);
+
+        // 3. ObservaÃ§Ãµes
+        if (request.Notes != null)
+            comanda.Notes = request.Notes;
+
+        // 4. Trocar cliente
+        if (request.NovoClienteId.HasValue)
+        {
+            var existe = await _db.Users.AnyAsync(u => u.Id == request.NovoClienteId.Value && u.IsActive);
+            if (!existe) throw new InvalidOperationException("Cliente nÃ£o encontrado ou inativo.");
+            comanda.UserId = request.NovoClienteId.Value;
+        }
+
+        // 5. Itens
+        if (request.Itens != null)
+        {
+            foreach (var req in request.Itens)
+            {
+                if (req.ComandaItemId.HasValue && req.Remover)
+                {
+                    var existing = comanda.Items.FirstOrDefault(i => i.Id == req.ComandaItemId.Value);
+                    if (existing != null)
+                    {
+                        if (existing.ProductId.HasValue)
+                            await _db.Products
+                                .Where(p => p.Id == existing.ProductId.Value)
+                                .ExecuteUpdateAsync(s => s
+                                    .SetProperty(p => p.StockQuantity, p => p.StockQuantity + existing.Quantity)
+                                    .SetProperty(p => p.UpdatedAt, DateTime.UtcNow));
+                        _db.ComandaItems.Remove(existing);
+                        comanda.Items.Remove(existing);
+                    }
+                }
+                else if (req.ComandaItemId.HasValue)
+                {
+                    var existing = comanda.Items.FirstOrDefault(i => i.Id == req.ComandaItemId.Value);
+                    if (existing != null)
+                    {
+                        var delta = req.Quantity - existing.Quantity;
+                        if (delta != 0 && existing.ProductId.HasValue)
+                        {
+                            if (delta > 0)
+                            {
+                                var rows = await _db.Products
+                                    .Where(p => p.Id == existing.ProductId.Value && p.StockQuantity >= delta)
+                                    .ExecuteUpdateAsync(s => s
+                                        .SetProperty(p => p.StockQuantity, p => p.StockQuantity - delta)
+                                        .SetProperty(p => p.UpdatedAt, DateTime.UtcNow));
+                                if (rows == 0)
+                                    throw new InvalidOperationException($"Estoque insuficiente para '{existing.ItemNameSnapshot}'.");
+                            }
+                            else
+                            {
+                                await _db.Products
+                                    .Where(p => p.Id == existing.ProductId.Value)
+                                    .ExecuteUpdateAsync(s => s
+                                        .SetProperty(p => p.StockQuantity, p => p.StockQuantity + (-delta))
+                                        .SetProperty(p => p.UpdatedAt, DateTime.UtcNow));
+                            }
+                        }
+                        existing.Quantity         = req.Quantity;
+                        existing.UnitPriceInCents = req.UnitPriceInCents;
+                        existing.SubtotalInCents  = req.Quantity * req.UnitPriceInCents;
+                    }
+                }
+                else
+                {
+                    // Novo item
+                    if (req.ProductId.HasValue)
+                    {
+                        var rows = await _db.Products
+                            .Where(p => p.Id == req.ProductId.Value && p.IsActive && p.StockQuantity >= req.Quantity)
+                            .ExecuteUpdateAsync(s => s
+                                .SetProperty(p => p.StockQuantity, p => p.StockQuantity - req.Quantity)
+                                .SetProperty(p => p.UpdatedAt, DateTime.UtcNow));
+                        if (rows == 0)
+                            throw new InvalidOperationException($"Estoque insuficiente ou produto inativo: '{req.ItemName}'.");
+                    }
+                    var novoItem = new ComandaItem
+                    {
+                        ComandaId        = comanda.Id,
+                        ProductId        = req.ProductId,
+                        ItemNameSnapshot = req.ItemName,
+                        UnitPriceInCents = req.UnitPriceInCents,
+                        Quantity         = req.Quantity,
+                        SubtotalInCents  = req.Quantity * req.UnitPriceInCents,
+                        AddedByUserId    = adminId,
+                    };
+                    _db.ComandaItems.Add(novoItem);
+                    comanda.Items.Add(novoItem);
+                }
+            }
+        }
+
+        await _db.SaveChangesAsync();
+
+        // Recalcula total a partir dos itens salvos
+        var totalItens = await _db.ComandaItems
+            .Where(i => i.ComandaId == comandaId)
+            .SumAsync(i => i.SubtotalInCents);
+        comanda.TotalInCents = Math.Max(0, totalItens - comanda.PointsApplied);
+        await _db.SaveChangesAsync();
+
+        _logger.LogInformation("Comanda {Id} editada pelo admin {AdminId}.", comandaId, adminId);
+        await _hub.Clients.Group(ComandaHub.AdminGroup).SendAsync("ComandaAtualizada", comandaId);
+
+        // Recarrega com User para o MapToDto
+        var updated = await _db.Comandas
+            .Include(c => c.Items)
+            .Include(c => c.User)
+            .FirstAsync(c => c.Id == comandaId);
+
+        return MapToDto(updated);
+    }
+
+    private static ComandaDto MapToDto(Comanda comanda) => new()
+    {
+        Id                         = comanda.Id,
+        UserId                     = comanda.UserId,
+        UserName                   = comanda.User?.Name ?? string.Empty,
+        TableIdentifier            = comanda.TableIdentifier,
+        Status                     = comanda.Status.ToString(),
+        TotalInReais               = comanda.TotalInReais,
+        PointsApplied              = comanda.PointsApplied,
+        OpenedAt                   = comanda.OpenedAt,
+        ClosedAt                   = comanda.ClosedAt,
+        PaymentMethod              = comanda.PaymentMethod,
+        SecondPaymentMethod        = comanda.SecondPaymentMethod,
+        SecondPaymentAmountInCents = comanda.SecondPaymentAmountInCents,
+        UserPointsBalance          = comanda.User?.PointsBalance  ?? 0,
+        UserBalanceInCents         = comanda.User?.BalanceInCents ?? 0,
+        ProfileImageUrl            = comanda.User?.ProfileImageUrl,
+        Items                      = comanda.Items.Select(i => new ComandaItemDto
+        {
+            Id               = i.Id,
+            ProductId        = i.ProductId,
+            ItemNameSnapshot = i.ItemNameSnapshot,
+            Quantity         = i.Quantity,
+            UnitPriceInCents = i.UnitPriceInCents,
+            UnitPriceInReais = i.UnitPriceInCents / 100m,
+            SubtotalInReais  = i.SubtotalInReais,
+            AddedAt          = i.AddedAt,
+        }).ToList(),
+    };
+}
+

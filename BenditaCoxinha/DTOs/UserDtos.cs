@@ -1,0 +1,261 @@
+﻿// =============================================================================
+// UserDtos.cs â€” DTOs para gerenciamento de usuÃ¡rios e pontos
+// =============================================================================
+
+using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
+
+namespace BenditaCoxinha.DTOs;
+
+// â”€â”€ PreferÃªncias â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+public class AiButtonPrefs
+{
+    [JsonPropertyName("mode")]    public string Mode    { get; set; } = "draggable";
+    [JsonPropertyName("corner")]  public string Corner  { get; set; } = "bottom-right";
+    [JsonPropertyName("enabled")] public bool   Enabled { get; set; } = true;
+}
+
+public class VLibrasPrefs
+{
+    [JsonPropertyName("enabled")] public bool   Enabled { get; set; } = true;
+    [JsonPropertyName("corner")]  public string Corner  { get; set; } = "bottom-right";
+}
+
+public class NotificationPrefs
+{
+    [JsonPropertyName("soundEnabled")]
+    public bool SoundEnabled { get; set; } = true;
+
+    [JsonPropertyName("browserEnabled")]
+    public bool BrowserEnabled { get; set; } = true;
+}
+
+public class PdvPrefs
+{
+    [JsonPropertyName("defaultDiscount")]
+    public int DefaultDiscount { get; set; } = 0; // 0, 5, 10, 15, 20
+}
+
+/// <summary>PreferÃªncias completas do usuÃ¡rio.</summary>
+public class UserPreferencesDto
+{
+    [JsonPropertyName("aiButton")]      public AiButtonPrefs     AiButton      { get; set; } = new();
+    [JsonPropertyName("vlibras")]       public VLibrasPrefs      Vlibras       { get; set; } = new();
+    [JsonPropertyName("notifications")] public NotificationPrefs Notifications { get; set; } = new();
+    [JsonPropertyName("pdv")]           public PdvPrefs          Pdv           { get; set; } = new();
+}
+
+/// <summary>Request para atualizar preferÃªncias (corpo idÃªntico ao DTO).</summary>
+public class UpdatePreferencesRequest : UserPreferencesDto { }
+
+/// <summary>Retorno resumido de um usuÃ¡rio (para listagem admin).</summary>
+public class UserSummaryDto
+{
+    public Guid     Id              { get; set; }
+    public string   Name            { get; set; } = string.Empty;
+    public string?  Email           { get; set; }
+    public string?  Cpf             { get; set; }
+    public string?  WhatsApp        { get; set; }
+    public string?  ProfileImageUrl { get; set; }
+    public string   Role            { get; set; } = string.Empty;
+    public Guid?    PerfilId        { get; set; }
+    public string?  PerfilNome      { get; set; }
+    public int      PointsBalance   { get; set; }
+    public DateTime? PointsExpiresAt { get; set; }
+    public bool     PointsExpired   { get; set; }
+    public int      BalanceInCents  { get; set; }
+    public bool     IsActive        { get; set; }
+    public DateTime CreatedAt       { get; set; }
+}
+
+/// <summary>Perfil completo do cliente logado (retornado em GET /api/user/me).</summary>
+public class UserProfileDto
+{
+    public Guid      Id              { get; set; }
+    public string    Name            { get; set; } = string.Empty;
+    public string?   Email           { get; set; }
+    public string?   Cpf             { get; set; }
+    public string?   WhatsApp        { get; set; }
+    public string?   ProfileImageUrl { get; set; }
+    public string    Role            { get; set; } = string.Empty;
+    public int       PointsBalance   { get; set; }
+    public DateTime? PointsExpiresAt { get; set; }
+    public bool      PointsExpired   { get; set; }
+    public int       BalanceInCents  { get; set; }
+    public DateTime  CreatedAt       { get; set; }
+}
+
+/// <summary>Request para ajustar saldo monetÃ¡rio de um usuÃ¡rio (Admin).</summary>
+public class AdjustBalanceRequest
+{
+    /// <summary>Valor em centavos. Positivo = crÃ©dito (recarga), negativo = dÃ©bito (uso).</summary>
+    [Required]
+    public int AmountInCents { get; set; }
+
+    [MaxLength(255)]
+    public string? Reason { get; set; }
+}
+
+/// <summary>Request para adicionar pontos a um usuÃ¡rio (Admin).</summary>
+public class AddPointsRequest
+{
+    [Required]
+    [Range(1, 100000, ErrorMessage = "Quantidade de pontos deve ser entre 1 e 100.000.")]
+    public int Points { get; set; }
+
+    [MaxLength(255)]
+    public string? Reason { get; set; }  // Motivo (opcional, ex: "Campeonato de PokÃ©mon")
+}
+
+/// <summary>
+/// Request para o titular corrigir seus prÃ³prios dados (LGPD â€” direito de retificaÃ§Ã£o).
+/// Todos os campos sÃ£o opcionais: apenas os campos fornecidos sÃ£o atualizados.
+/// </summary>
+public class UpdateMeRequest
+{
+    [MaxLength(150)]
+    public string? Name { get; set; }
+
+    [EmailAddress]
+    [MaxLength(255)]
+    public string? Email { get; set; }
+
+    [MaxLength(20)]
+    public string? WhatsApp { get; set; }
+}
+
+/// <summary>Request para o Admin criar uma conta de cliente ou operador.</summary>
+public class AdminCreateUserRequest
+{
+    [Required]
+    [MaxLength(150)]
+    public string Name { get; set; } = string.Empty;
+
+    [MaxLength(11)]
+    public string? Cpf { get; set; }
+
+    [MaxLength(20)]
+    public string? WhatsApp { get; set; }
+
+    [EmailAddress]
+    [MaxLength(255)]
+    public string? Email { get; set; }
+
+    /// <summary>Senha inicial (opcional para Customer; obrigatÃ³ria para Operator).</summary>
+    [MinLength(8)]
+    [MaxLength(100)]
+    public string? Password { get; set; }
+
+    /// <summary>"Customer" (padrÃ£o) ou "Operator".</summary>
+    [MaxLength(20)]
+    public string? Role { get; set; }
+
+    /// <summary>ID do perfil de permissÃµes (somente para Operator).</summary>
+    public Guid? PerfilId { get; set; }
+}
+
+/// <summary>Request para o Admin redefinir a senha de um cliente.</summary>
+public class AdminResetPasswordRequest
+{
+    [Required]
+    [MinLength(8)]
+    [MaxLength(100)]
+    public string NewPassword { get; set; } = string.Empty;
+}
+
+public class AtualizarPerfilOperadorRequest
+{
+    /// <summary>ID do perfil a atribuir, ou null para desatribuir.</summary>
+    public Guid? PerfilId { get; set; }
+}
+
+// â”€â”€â”€ HistÃ³rico de cliente â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+public class ClienteHistoricoDto
+{
+    public Guid    UserId   { get; set; }
+    public string  UserName { get; set; } = string.Empty;
+
+    // Totalizadores
+    public int     TotalVisitas     { get; set; }
+    public decimal TotalGasto       { get; set; }
+    public DateTime? PrimeiraVisita { get; set; }
+    public DateTime? UltimaVisita   { get; set; }
+
+    // PaginaÃ§Ã£o de comandas
+    public int TotalComandas { get; set; }
+    public int Page          { get; set; }
+    public int PageSize      { get; set; }
+
+    // Listas
+    public List<ComandaHistoricoDto>     Comandas      { get; set; } = new();
+    public List<VendaAvulsaHistoricoDto> VendasAvulsas { get; set; } = new();
+    public List<CrediariosHistoricoDto>  Crediarios    { get; set; } = new();
+    public List<CampeonatoHistoricoDto>  Campeonatos   { get; set; } = new();
+}
+
+public class ComandaHistoricoDto
+{
+    public Guid     Id             { get; set; }
+    public string   Status         { get; set; } = string.Empty;
+    public decimal  TotalInReais   { get; set; }
+    public string?  PaymentMethod  { get; set; }
+    public string?  SecondPaymentMethod { get; set; }
+    public DateTime OpenedAt       { get; set; }
+    public DateTime? ClosedAt      { get; set; }
+    public string?  TableIdentifier { get; set; }
+    public List<ComandaItemHistoricoDto> Items { get; set; } = new();
+}
+
+public class ComandaItemHistoricoDto
+{
+    public string  ItemName         { get; set; } = string.Empty;
+    public int     Quantity         { get; set; }
+    public decimal UnitPriceInReais { get; set; }
+    public decimal SubtotalInReais  { get; set; }
+}
+
+public class VendaAvulsaHistoricoDto
+{
+    public string   Id            { get; set; } = string.Empty;
+    public decimal  TotalInReais  { get; set; }
+    public string   PaymentMethod { get; set; } = string.Empty;
+    public DateTime SoldAt        { get; set; }
+    public List<VendaAvulsaItemHistoricoDto> Items { get; set; } = new();
+}
+
+public class VendaAvulsaItemHistoricoDto
+{
+    public string  ProductName      { get; set; } = string.Empty;
+    public int     Quantity         { get; set; }
+    public decimal UnitPriceInReais { get; set; }
+    public decimal SubtotalInReais  { get; set; }
+}
+
+public class CrediariosHistoricoDto
+{
+    public Guid      Id              { get; set; }
+    public decimal   ValorEmReais    { get; set; }
+    public decimal   SaldoRestante   { get; set; }
+    public string    Status          { get; set; } = string.Empty;
+    public bool      Vencido         { get; set; }
+    public DateTime  DataAbertura    { get; set; }
+    public DateTime  DataVencimento  { get; set; }
+    public DateTime? DataPagamento   { get; set; }
+    public string?   Observacao      { get; set; }
+}
+
+public class CampeonatoHistoricoDto
+{
+    public Guid     ChampionshipId   { get; set; }
+    public string   ChampionshipName { get; set; } = string.Empty;
+    public string   Game             { get; set; } = string.Empty;
+    public string   Status           { get; set; } = string.Empty;
+    public DateTime StartDate        { get; set; }
+    public int      PlayerNumber     { get; set; }
+    public string?  DeckName         { get; set; }
+    public int?     Placement        { get; set; }
+    public DateTime RegisteredAt     { get; set; }
+}
+

@@ -1,0 +1,138 @@
+﻿// =============================================================================
+// AuthDtos.cs â€” DTOs de AutenticaÃ§Ã£o
+// Separa os dados de entrada/saÃ­da da API dos Models internos.
+// =============================================================================
+
+using System.ComponentModel.DataAnnotations;
+
+namespace BenditaCoxinha.DTOs;
+
+// -------------------------------------------------------------------------
+// ValidaÃ§Ã£o de CPF (dÃ­gitos verificadores)
+// -------------------------------------------------------------------------
+
+[AttributeUsage(AttributeTargets.Property | AttributeTargets.Parameter)]
+public sealed class ValidCpfAttribute : ValidationAttribute
+{
+    public ValidCpfAttribute() : base("CPF invÃ¡lido.") { }
+
+    protected override ValidationResult? IsValid(object? value, ValidationContext ctx)
+    {
+        var cpf = (value as string)?.Trim() ?? string.Empty;
+        if (cpf.Length != 11 || !cpf.All(char.IsDigit) || cpf.Distinct().Count() == 1)
+            return new ValidationResult(ErrorMessage);
+
+        static int Digit(string s, int len)
+        {
+            var sum = s.Take(len).Select((c, i) => (c - '0') * (len + 1 - i)).Sum();
+            var rem = (sum * 10) % 11;
+            return rem == 10 ? 0 : rem;
+        }
+
+        return Digit(cpf, 9)  == (cpf[9]  - '0') &&
+               Digit(cpf, 10) == (cpf[10] - '0')
+            ? ValidationResult.Success
+            : new ValidationResult(ErrorMessage);
+    }
+}
+
+// -------------------------------------------------------------------------
+// Requests (entrada)
+// -------------------------------------------------------------------------
+
+/// <summary>Login completo: Admin e clientes de Campeonatos.</summary>
+public record LoginRequest(
+    [Required, EmailAddress] string Email,
+    [Required, MinLength(8)] string Password
+);
+
+/// <summary>
+/// Login RÃ¡pido via QR Code: apenas para Customers da comanda.
+/// NÃ£o exige senha â€” validaÃ§Ã£o por CPF + WhatsApp.
+/// </summary>
+public record QuickLoginRequest(
+    [Required, MaxLength(150)]  string Name,
+    [Required, ValidCpf]        string Cpf,       // Apenas dÃ­gitos, com verificaÃ§Ã£o de dÃ­gito
+    [Required, MaxLength(20)]   string WhatsApp,  // Formato: 5511999999999
+    [MaxLength(50)]             string? TableIdentifier = null // Mesa do QR Code
+);
+
+/// <summary>RenovaÃ§Ã£o de token usando o Refresh Token.</summary>
+public record RefreshTokenRequest(
+    [Required] string RefreshToken
+);
+
+/// <summary>Busca cliente por CPF â€” primeiro acesso pelo site.</summary>
+public record CpfLookupRequest(
+    [Required, ValidCpf] string Cpf
+);
+
+/// <summary>Ativa a conta de um cliente existente (CPF + email + senha).</summary>
+public record SetupAccountRequest(
+    [Required, ValidCpf]        string Cpf,
+    [Required, EmailAddress]    string Email,
+    [Required, MinLength(8)]    string Password
+);
+
+/// <summary>Login de cliente pelo site (email + senha).</summary>
+public record ClientLoginRequest(
+    [Required, EmailAddress]    string Email,
+    [Required]                  string Password
+);
+
+/// <summary>Resposta da busca por CPF.</summary>
+public record CpfLookupResponse(
+    string Name,
+    bool   HasPassword
+);
+
+/// <summary>Solicita envio de email para redefiniÃ§Ã£o de senha.</summary>
+public record ForgotPasswordRequest(
+    [Required, EmailAddress] string Email
+);
+
+/// <summary>Redefine a senha usando o token recebido por email.</summary>
+public record ResetPasswordRequest(
+    [Required] string Token,
+    [Required, MinLength(8)] string NewPassword
+);
+
+/// <summary>Solicita envio de um email de teste para diagnÃ³stico.</summary>
+public record TestEmailRequest(
+    [Required, EmailAddress] string Email
+);
+
+// -------------------------------------------------------------------------
+// Responses (saÃ­da)
+// -------------------------------------------------------------------------
+
+/// <summary>Resposta interna de autenticaÃ§Ã£o â€” inclui tokens para uso nos cookies.</summary>
+public record AuthResponse(
+    string   AccessToken,
+    string   RefreshToken,
+    DateTime ExpiresAt,
+    string   Role,
+    string   UserName,
+    Guid     UserId,
+    /// <summary>
+    /// ID da comanda ativa â€” preenchido apenas no quick-login (cliente via QR Code).
+    /// Null no login completo do Admin.
+    /// </summary>
+    Guid?    ComandaId   = null,
+    /// <summary>PermissÃµes do Operator. Null para Admin e Customer.</summary>
+    string[]? Permissions = null
+);
+
+/// <summary>
+/// Resposta de auth enviada ao cliente via JSON â€” sem tokens.
+/// Os tokens trafegam exclusivamente como cookies HttpOnly (proteÃ§Ã£o XSS).
+/// </summary>
+public record SafeAuthResponse(
+    DateTime  ExpiresAt,
+    string    Role,
+    string    UserName,
+    Guid      UserId,
+    Guid?     ComandaId   = null,
+    string[]? Permissions = null
+);
+

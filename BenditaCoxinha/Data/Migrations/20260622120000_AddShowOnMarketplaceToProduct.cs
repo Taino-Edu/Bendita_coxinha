@@ -1,0 +1,26 @@
+﻿using Microsoft.EntityFrameworkCore.Migrations;
+
+#nullable disable
+
+namespace BenditaCoxinha.Data.Migrations
+{
+    public partial class AddShowOnMarketplaceToProduct : Migration
+    {
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.Sql(@"
+                ALTER TABLE products
+                    ADD COLUMN IF NOT EXISTS show_on_marketplace boolean NOT NULL DEFAULT true;
+            ");
+        }
+
+        protected override void Down(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.Sql(@"
+                ALTER TABLE products
+                    DROP COLUMN IF EXISTS show_on_marketplace;
+            ");
+        }
+    }
+}
+
