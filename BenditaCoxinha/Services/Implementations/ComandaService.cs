@@ -210,7 +210,6 @@ public class ComandaService : IComandaService
         {
             ComandaId                = comanda.Id,
             ProductId                = request.ProductId,
-            CardCacheId              = request.CardCacheId,
             ItemNameSnapshot         = itemName,
             UnitPriceInCents         = priceInCents,
             CostPriceSnapshotInCents = costInCents,
@@ -300,7 +299,6 @@ public class ComandaService : IComandaService
         {
             ComandaId                = comanda.Id,
             ProductId                = request.ProductId,
-            CardCacheId              = request.CardCacheId,
             ItemNameSnapshot         = itemName,
             UnitPriceInCents         = priceInCents,
             CostPriceSnapshotInCents = costInCents,
@@ -519,6 +517,9 @@ public class ComandaService : IComandaService
         // â”€â”€ CrediÃ¡rio â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if (paymentMethod == PaymentCrediario)
         {
+            if (comanda.UserId is null)
+                throw new InvalidOperationException("Crediário requer um cliente cadastrado. Esta comanda é de mesa sem conta.");
+
             if (crediarioExistenteId.HasValue)
             {
                 // Admin escolheu acumular em uma conta jÃ¡ aberta â€” sem renovar prazo
@@ -527,8 +528,8 @@ public class ComandaService : IComandaService
                     .FirstOrDefaultAsync(cr => cr.Id == crediarioExistenteId.Value)
                     ?? throw new InvalidOperationException("CrediÃ¡rio selecionado nÃ£o encontrado.");
 
-                if (existente.UserId != comanda.UserId)
-                    throw new InvalidOperationException("O crediÃ¡rio selecionado nÃ£o pertence ao cliente desta comanda.");
+                if (existente.UserId != comanda.UserId!.Value)
+                    throw new InvalidOperationException("O crediário selecionado não pertence ao cliente desta comanda.");
 
                 if (existente.Status != CrediariosStatus.Aberto)
                     throw new InvalidOperationException("O crediÃ¡rio selecionado jÃ¡ foi quitado.");
@@ -586,7 +587,7 @@ public class ComandaService : IComandaService
                 var vencimento = DateTime.UtcNow.AddDays(30);
                 var crediario  = new Crediario
                 {
-                    UserId           = comanda.UserId,
+                    UserId           = comanda.UserId!.Value,
                     ComandaId        = comanda.Id,
                     ValorEmCentavos  = primaryAmt,
                     DataAbertura     = DateTime.UtcNow,

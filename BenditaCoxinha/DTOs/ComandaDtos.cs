@@ -39,7 +39,7 @@ public class ComandaDto
 {
     public Guid              Id              { get; set; }
     public string            UserName        { get; set; } = string.Empty;
-    public Guid              UserId          { get; set; }
+    public Guid?             UserId          { get; set; }
     public string?           TableIdentifier { get; set; }
     public string            Status          { get; set; } = string.Empty;
     public decimal           TotalInReais    { get; set; }

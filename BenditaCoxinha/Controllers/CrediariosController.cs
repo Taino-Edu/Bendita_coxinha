@@ -233,14 +233,15 @@ public class CrediariosController : ControllerBase
     {
         var all = await _db.Comandas
             .Include(c => c.Items)
-            .Where(c => userIds.Contains(c.UserId)
+            .Where(c => c.UserId != null
+                     && userIds.Contains(c.UserId.Value)
                      && c.PaymentMethod == "Crediario"
                      && c.Status == ComandaStatus.Fechada
                      && c.ClosedAt != null)
             .ToListAsync();
 
         return all
-            .GroupBy(c => c.UserId)
+            .GroupBy(c => c.UserId!.Value)
             .ToDictionary(g => g.Key, g => g.ToList());
     }
 

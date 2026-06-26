@@ -21,15 +21,18 @@ public class Comanda
     public Guid Id { get; set; } = Guid.NewGuid();
 
     // -------------------------------------------------------------------------
-    // Relacionamento com o usuÃ¡rio
+    // Cliente (opcional — restaurante não exige login)
     // -------------------------------------------------------------------------
 
-    [Required]
+    /// <summary>
+    /// Conta registrada do cliente, se existir.
+    /// Nullable: comandas de restaurante são abertas sem login.
+    /// </summary>
     [Column("user_id")]
-    public Guid UserId { get; set; }
+    public Guid? UserId { get; set; }
 
     [ForeignKey(nameof(UserId))]
-    public User User { get; set; } = null!;
+    public User? User { get; set; }
 
     // -------------------------------------------------------------------------
     // Contexto de abertura (mesa / QR Code)
@@ -111,10 +114,13 @@ public class Comanda
     public decimal TotalInReais => TotalInCents / 100m;
 
     // -------------------------------------------------------------------------
-    // NavegaÃ§Ã£o
+    // Navegação
     // -------------------------------------------------------------------------
 
     public ICollection<ComandaItem> Items { get; set; } = new List<ComandaItem>();
+
+    /// <summary>Pessoas sentadas nesta mesa (assentos para divisão de conta).</summary>
+    public ICollection<ComandaSeat> Seats { get; set; } = new List<ComandaSeat>();
 }
 
 // -------------------------------------------------------------------------

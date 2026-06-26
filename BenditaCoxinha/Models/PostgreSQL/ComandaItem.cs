@@ -31,27 +31,38 @@ public class ComandaItem
     public Comanda Comanda { get; set; } = null!;
 
     // -------------------------------------------------------------------------
-    // Tipo de item: Produto fÃ­sico OU Carta TCG
+    // Produto do cardápio
     // -------------------------------------------------------------------------
 
-    /// <summary>
-    /// FK para o produto fÃ­sico (nullable).
-    /// Preenchido apenas quando o item Ã© do estoque fixo.
-    /// </summary>
     [Column("product_id")]
     public Guid? ProductId { get; set; }
 
     [ForeignKey(nameof(ProductId))]
     public Product? Product { get; set; }
 
+    // -------------------------------------------------------------------------
+    // Assento (pessoa que pediu este item)
+    // -------------------------------------------------------------------------
+
     /// <summary>
-    /// ID da carta no MongoDB (nullable).
-    /// Preenchido apenas quando o item Ã© uma carta TCG.
-    /// Ex: "tcg_pokemon_pikachu_xy1_001"
+    /// Pessoa da mesa que pediu este item.
+    /// Nullable: itens podem ser "da mesa" sem vinculação a pessoa específica.
+    /// Usado para divisão de conta por pessoa.
     /// </summary>
-    [MaxLength(100)]
-    [Column("card_cache_id")]
-    public string? CardCacheId { get; set; }
+    [Column("seat_id")]
+    public Guid? SeatId { get; set; }
+
+    [ForeignKey(nameof(SeatId))]
+    public ComandaSeat? Seat { get; set; }
+
+    // -------------------------------------------------------------------------
+    // Observações do pedido
+    // -------------------------------------------------------------------------
+
+    /// <summary>Modificações solicitadas: "sem cebola", "bem passado", "com gelo".</summary>
+    [MaxLength(300)]
+    [Column("observacoes")]
+    public string? Observacoes { get; set; }
 
     // -------------------------------------------------------------------------
     // Snapshot do item no momento da adiÃ§Ã£o

@@ -25,6 +25,7 @@ public class AppDbContext : DbContext
     public DbSet<ProductCategory>         ProductCategories        { get; set; }
     public DbSet<Comanda>                 Comandas                 { get; set; }
     public DbSet<ComandaItem>             ComandaItems             { get; set; }
+    public DbSet<ComandaSeat>             ComandaSeats             { get; set; }
     public DbSet<Championship>            Championships            { get; set; }
     public DbSet<ChampionshipParticipant>  ChampionshipParticipants  { get; set; }
     public DbSet<ChampionshipPreInscricao> ChampionshipPreInscricoes { get; set; }
@@ -109,7 +110,8 @@ public class AppDbContext : DbContext
             entity.HasOne(c => c.User)
                   .WithMany(u => u.Comandas)
                   .HasForeignKey(c => c.UserId)
-                  .OnDelete(DeleteBehavior.Restrict);
+                  .OnDelete(DeleteBehavior.Restrict)
+                  .IsRequired(false);
 
             entity.HasOne(c => c.Championship)
                   .WithMany(ch => ch.Comandas)
@@ -136,6 +138,26 @@ public class AppDbContext : DbContext
                   .HasForeignKey(i => i.ProductId)
                   .OnDelete(DeleteBehavior.Restrict)
                   .IsRequired(false);
+
+            entity.HasOne(i => i.Seat)
+                  .WithMany(s => s.Items)
+                  .HasForeignKey(i => i.SeatId)
+                  .OnDelete(DeleteBehavior.SetNull)
+                  .IsRequired(false);
+        });
+
+        // =====================================================================
+        // COMANDA SEAT
+        // =====================================================================
+        modelBuilder.Entity<ComandaSeat>(entity =>
+        {
+            entity.HasIndex(s => s.ComandaId)
+                  .HasDatabaseName("ix_comanda_seats_comanda");
+
+            entity.HasOne(s => s.Comanda)
+                  .WithMany(c => c.Seats)
+                  .HasForeignKey(s => s.ComandaId)
+                  .OnDelete(DeleteBehavior.Cascade);
         });
 
         // =====================================================================
@@ -272,23 +294,6 @@ public class AppDbContext : DbContext
                   .IsRequired(false);
         });
 
-        // =====================================================================
-        // AUDIT LOG
-        // =====================================================================
-        modelBuilder.Entity<AuditLog>(entity =>
-        {
-            // Busca por entidade afetada
-            entity.HasIndex(a => new { a.EntityType, a.EntityId })
-                  .HasDatabaseName("ix_audit_logs_entity");
-
-            // Busca por ator
-            entity.HasIndex(a => a.ActorUserId)
-                  .HasDatabaseName("ix_audit_logs_actor");
-
-            // OrdenaÃ§Ã£o por data (query mais frequente)
-            entity.HasIndex(a => a.CreatedAt)
-                  .HasDatabaseName("ix_audit_logs_created_at");
-        });
 
     }
 }

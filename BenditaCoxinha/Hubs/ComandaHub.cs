@@ -172,7 +172,7 @@ public class ComandaHub : Hub
 public class ComandaUpdateEvent
 {
     public Guid     ComandaId       { get; set; }
-    public Guid     UserId          { get; set; }
+    public Guid?    UserId          { get; set; }
     public string   UserName        { get; set; } = string.Empty;
     public string?  TableIdentifier { get; set; }
     public decimal  TotalInReais    { get; set; }

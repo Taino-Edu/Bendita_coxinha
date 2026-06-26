@@ -11,7 +11,7 @@ import {
   Sun, Moon, Mail,
 } from 'lucide-react'
 
-const RESTAURANTE_WHATSAPP = '5500000000000' // TODO: atualizar com WhatsApp do restaurante
+const RESTAURANTE_WHATSAPP = '5517991359883'
 const RESTAURANTE_EMAIL    = 'contato@benditacoxinha.com.br'
 const NAVY                 = '#7C2D12'
 
