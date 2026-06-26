@@ -1,26 +1,23 @@
 # =============================================================================
-# docker-compose.prod.yml — Produção SantuárioNerd (Hostinger KVM 1)
+# docker-compose.prod.yml — Produção Bendita Coxinha
 #
 # COMO USAR (primeira vez):
-#   cd /opt/santuarionerd
+#   cd /opt/benditacoxinha/deploy
 #   docker compose -f docker-compose.prod.yml build
 #   docker compose -f docker-compose.prod.yml up -d
 #
-# Atualizar código:
-#   git pull && docker compose -f docker-compose.prod.yml build && docker compose -f docker-compose.prod.yml up -d
-#
-# Acesso público: https://santuarionerd.tech  (Cloudflare → porta 80)
+# Atualizar:
+#   bash /opt/benditacoxinha/deploy/update.sh
 # =============================================================================
 
 services:
 
   # ---------------------------------------------------------------------------
   # NGINX — Único serviço exposto ao mundo (porta 80)
-  # Recebe HTTPS do Cloudflare e roteia para frontend e API
   # ---------------------------------------------------------------------------
   nginx:
     image: nginx:1.27-alpine
-    container_name: santuarionerd_nginx
+    container_name: benditacoxinha_nginx
     ports:
       - "80:80"
     volumes:
@@ -30,7 +27,7 @@ services:
       - frontend
       - api
     networks:
-      - cardgame_network
+      - benditacoxinha_network
     restart: unless-stopped
     deploy:
       resources:
@@ -45,18 +42,17 @@ services:
 
   # ---------------------------------------------------------------------------
   # FRONTEND — Next.js 14
-  # NEXT_PUBLIC_API_URL é baked no build (URL que o browser usa para a API)
   # ---------------------------------------------------------------------------
   frontend:
     build:
       context: ../frontend
       dockerfile: Dockerfile
       args:
-        API_URL: https://santuarionerd.tech
-    image: santuarionerd_frontend:latest
-    container_name: santuarionerd_frontend
+        API_URL: https://benditacoxinha.com.br
+    image: benditacoxinha_frontend:latest
+    container_name: benditacoxinha_frontend
     networks:
-      - cardgame_network
+      - benditacoxinha_network
     restart: unless-stopped
     deploy:
       resources:
@@ -74,46 +70,41 @@ services:
   # ---------------------------------------------------------------------------
   api:
     build:
-      context: ../CardGameStore
+      context: ../BenditaCoxinha
       dockerfile: Dockerfile
-    image: santuarionerd_api:latest
-    container_name: santuarionerd_api
+    image: benditacoxinha_api:latest
+    container_name: benditacoxinha_api
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_URLS: http://+:5000
       # Banco de dados
-      ConnectionStrings__PostgreSQL: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-cardgamestore};Username=${POSTGRES_USER:-cardgame_user};Password=${POSTGRES_PASSWORD}"
-      MongoDbSettings__ConnectionString: "mongodb://${MONGO_USER:-mongo_admin}:${MONGO_PASSWORD}@mongo:27017/?authSource=admin"
-      MongoDbSettings__DatabaseName: "cardgamestore_cache"
+      ConnectionStrings__PostgreSQL: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-benditacoxinha};Username=${POSTGRES_USER:-bendita_user};Password=${POSTGRES_PASSWORD}"
       # JWT
       JwtSettings__SecretKey: "${JWT_SECRET}"
-      JwtSettings__Issuer: "https://santuarionerd.tech"
-      JwtSettings__Audience: "CardGameStore-Frontend"
-      JwtSettings__AccessTokenExpirationMinutes: "60"
-      JwtSettings__RefreshTokenExpirationDays: "30"
-      # E-mail (Resend)
-      SmtpSettings__Host: "${SMTP_HOST:-smtp.resend.com}"
-      SmtpSettings__Port: "${SMTP_PORT:-587}"
-      SmtpSettings__Username: "${SMTP_USERNAME:-resend}"
-      SmtpSettings__Password: "${SMTP_PASSWORD}"
-      SmtpSettings__FromEmail: "${SMTP_FROM_EMAIL:-noreply@santuarionerd.tech}"
-      SmtpSettings__FromName: "${SMTP_FROM_NAME:-Santuário Nerd}"
+      JwtSettings__Issuer: "https://benditacoxinha.com.br"
+      JwtSettings__Audience: "BenditaCoxinha-Frontend"
+      JwtSettings__AccessTokenExpirationMinutes: "480"
+      JwtSettings__RefreshTokenExpirationDays: "90"
+      # E-mail
+      EmailSettings__Host: "${SMTP_HOST:-smtp.resend.com}"
+      EmailSettings__Port: "${SMTP_PORT:-587}"
+      EmailSettings__User: "${SMTP_USERNAME:-resend}"
+      EmailSettings__Password: "${SMTP_PASSWORD}"
+      EmailSettings__From: "${SMTP_FROM_EMAIL:-noreply@benditacoxinha.com.br}"
+      EmailSettings__AppUrl: "https://benditacoxinha.com.br"
       # Integrações
       GeminiSettings__ApiKey: "${GEMINI_API_KEY}"
-      TcgSettings__PokemonApiKey: "${POKEMON_API_KEY:-}"
-      # Segurança — HTTPS via Cloudflare, cookies Secure=true
+      # Segurança
+      ADMIN_SEED_PASSWORD: "${ADMIN_SEED_PASSWORD}"
       COOKIE_SECURE: "true"
-      CorsSettings__AllowedOrigins: "https://santuarionerd.tech,https://www.santuarionerd.tech"
-      Security__IpHashSalt: "${IP_HASH_SALT}"
+      CorsSettings__AllowedOrigins: "https://benditacoxinha.com.br,https://www.benditacoxinha.com.br"
     volumes:
       - api_uploads:/app/wwwroot/uploads
     depends_on:
       postgres:
         condition: service_healthy
-      mongo:
-        condition: service_started
     networks:
-      - cardgame_network
+      - benditacoxinha_network
     restart: unless-stopped
     deploy:
       resources:
@@ -133,19 +124,19 @@ services:
       start_period: 60s
 
   # ---------------------------------------------------------------------------
-  # POSTGRESQL — Banco relacional (comandas, usuários, etc.)
+  # POSTGRESQL — Banco relacional (único banco de dados)
   # ---------------------------------------------------------------------------
   postgres:
     image: postgres:16-alpine
-    container_name: santuarionerd_postgres
+    container_name: benditacoxinha_postgres
     environment:
-      POSTGRES_DB:       ${POSTGRES_DB:-cardgamestore}
-      POSTGRES_USER:     ${POSTGRES_USER:-cardgame_user}
+      POSTGRES_DB:       ${POSTGRES_DB:-benditacoxinha}
+      POSTGRES_USER:     ${POSTGRES_USER:-bendita_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
-      - cardgame_network
+      - benditacoxinha_network
     restart: unless-stopped
     deploy:
       resources:
@@ -158,47 +149,21 @@ services:
         max-size: "10m"
         max-file: "3"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cardgame_user} -d ${POSTGRES_DB:-cardgamestore}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bendita_user} -d ${POSTGRES_DB:-benditacoxinha}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # ---------------------------------------------------------------------------
-  # MONGODB — Cache de cartas TCG (Pokémon, MTG, etc.)
-  # ---------------------------------------------------------------------------
-  mongo:
-    image: mongo:7-jammy
-    container_name: santuarionerd_mongo
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: "${MONGO_USER:-mongo_admin}"
-      MONGO_INITDB_ROOT_PASSWORD: "${MONGO_PASSWORD}"
-    volumes:
-      - mongo_data:/data/db
-    networks:
-      - cardgame_network
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 256M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
 # -----------------------------------------------------------------------------
-# Volumes persistentes (dados sobrevivem a reinicios e redeploys)
+# Volumes persistentes
 # -----------------------------------------------------------------------------
 volumes:
   postgres_data:
-  mongo_data:
   api_uploads:
 
 # -----------------------------------------------------------------------------
-# Rede interna Docker (containers se falam pelo nome do serviço)
+# Rede interna Docker
 # -----------------------------------------------------------------------------
 networks:
-  cardgame_network:
+  benditacoxinha_network:
     driver: bridge

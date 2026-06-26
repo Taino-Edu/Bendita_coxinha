@@ -1,370 +1,163 @@
-# Santuário Nerd — Sistema de Gestão para Loja de Card Games
+# 🍗 Bendita Coxinha — Sistema de Gestão para Restaurante
 
-> Plataforma completa para gerenciamento de lojas de card games (Pokémon, Magic: The Gathering, Yu-Gi-Oh! e outros). Painel administrativo moderno, frente de caixa, comandas por QR Code, crediário, assistente IA e conformidade LGPD.
+Sistema completo de gestão para restaurante, com PDV, comandas via QR Code, cardápio, eventos, financeiro e site público.
 
-**Produção:** [santuarionerd.tech](https://santuarionerd.tech)
-
----
-
-## Funcionalidades
-
-### Frente de Caixa (Venda Avulsa)
-- Venda direta no balcão sem QR Code
-- Catálogo com busca por nome, categoria e código de barras
-- Carrinho com controle de estoque em tempo real
-- Desconto percentual por venda
-- Múltiplas formas de pagamento: Pix, Dinheiro, Cartão Crédito/Débito, Crediário, Pontos, Cashback
-- Geração de comprovante para impressão térmica (80mm) e PDF
-- Histórico navegável por qualquer data com popup de detalhes
-
-### Comandas por QR Code
-- Clientes escaneiam QR Code na mesa e abrem comanda pelo celular
-- Login rápido por CPF + WhatsApp com consentimento LGPD integrado
-- Dashboard ao vivo com SignalR — novas comandas aparecem sem recarregar
-- Admin pode adicionar itens, fechar (com seleção de pagamento) ou cancelar comandas
-- Leitor de código de barras via câmera ou USB no painel admin
-- Saldo de pontos e cashback do cliente exibido na modal de fechamento (bloqueia se insuficiente)
-- Cliente pode aplicar e remover pontos de fidelidade antes do fechamento
-- Desconto de pontos aplicados deduzido do `TotalInCents` no fechamento (analytics corretos)
-
-### Crediário
-- Criação automática ao fechar comanda/venda no crédito
-- Acumula dívidas em aberto por cliente
-- Registro de pagamentos parciais com histórico
-- Relatório de inadimplência
-
-### Estoque e Produtos
-- Cadastro de cards com integração às APIs: Pokémon TCG, Magic (Scryfall) e Yu-Gi-Oh!
-- Busca automática de imagens e metadados via APIs externas
-- Upload de imagens (JPEG/PNG/WebP, máx 5 MB)
-- Alertas de estoque baixo
-- Categorias customizáveis
-
-### Campeonatos
-- Cadastro com imagem de capa, jogo (texto livre), data, vagas e prêmio
-- Inscrições com controle de vagas
-- Listagem pública e painel admin
-
-### Relatórios Financeiros
-- Dashboard com receita, custo e margem por período
-- Gráfico de barras diário
-- Breakdown por forma de pagamento com drill-down de transações
-- Filtros por data, cliente e faixa de valor
-- Exportação em PDF
-
-### Assistente IA
-- Chat flutuante no painel admin alimentado pelo **Google Gemini 2.5 Flash**
-- Contexto automático do negócio (comandas, estoque, crediário)
-- Sugestões rápidas de perguntas
-
-### Área do Cliente
-- Histórico de comandas com detalhamento de itens
-- Saldo de pontos de fidelidade e cashback/crédito na loja
-- Perfil editável com upload de foto (JPEG/PNG/WebP, máx 5 MB)
-- ThemeToggle (modo claro/escuro persistido)
-- Modo RPG — comanda exibida como "pergaminho" temático
-- Histórico de campeonatos e inscrições
-
-### Gestão Administrativa
-- Gestão de usuários com funções (Admin / Customer)
-- Pontos de fidelidade e saldo cashback por cliente
-- Inscrição manual de clientes em campeonatos; remoção de participantes
-- Nova dívida (crediário) com lista de itens e cálculo automático do total
-- Anúncios e promoções
-- Geração de QR Codes para mesas
-- Painel LGPD para resposta de solicitações de titulares
-
-### Conformidade LGPD
-- Formulário público `/lgpd` com validação de CPF (Módulo 11)
-- Audit log imutável com IP anonimizado (SHA-256)
-- Política de Privacidade e Termos de Uso
-- Painel admin para gestão de solicitações dentro do prazo legal
+> Derivado do [SoftNerd](https://github.com/Taino-Edu/softNerd) — arquitetura modular reaproveitada e adaptada para o segmento de alimentação.
 
 ---
 
-## Stack Tecnológico
+## ✨ Funcionalidades
 
-### Backend — `CardGameStore/`
-
-| Tecnologia | Finalidade |
+| Módulo | Descrição |
 |---|---|
-| ASP.NET Core 8 | API REST |
-| Entity Framework Core 8 | ORM — PostgreSQL (sem migrations automáticas) |
-| PostgreSQL 16 | Usuários, produtos, comandas, crediários, campeonatos |
-| MongoDB 7 | Vendas avulsas (event store imutável) |
-| SignalR | Tempo real — comandas ao vivo |
-| JWT (HttpOnly Cookies) | Autenticação stateless |
-| BCrypt.Net | Hash de senhas |
-| Google Gemini 2.5 Flash | Assistente IA (HTTP direto, sem SDK) |
-| xUnit + Moq + FluentAssertions | Testes unitários |
+| **PDV (Balcão)** | Venda direta sem login de cliente, múltiplas formas de pagamento |
+| **Comandas / Mesas** | Cliente escaneia QR Code na mesa e faz pedido pelo celular em tempo real |
+| **Cardápio** | Gestão de pratos e bebidas por categoria (Entrada / Prato / Sobremesa / Bebida) |
+| **Eventos** | Shows, happy hours, jantares especiais — com inscrições e controle de vagas |
+| **Crediário / Fiado** | Controle de crédito interno por cliente, com histórico de pagamentos |
+| **Financeiro** | Receita, custo e margem por período — gráficos diários e exportação PDF |
+| **Relatórios** | Vendas por categoria e produto, inadimplência do crediário |
+| **Assistente IA** | Chat com contexto do negócio (mesas abertas, cardápio, caixa do dia) via Gemini |
+| **Área do Cliente** | Histórico de pedidos, pontos de fidelidade, cashback, perfil editável |
+| **Site Público** | Landing page, cardápio online, lista de eventos — voltado ao cliente final |
+| **Admin** | Usuários, perfis/permissões, QR Codes das mesas, anúncios |
 
-### Frontend — `frontend/`
+---
 
-| Tecnologia | Finalidade |
-|---|---|
-| Next.js 14 (App Router) | Framework React SSR |
-| TypeScript 5 | Tipagem estática |
-| Tailwind CSS 3 | Estilização |
-| Axios | Chamadas HTTP com interceptors de refresh token |
-| @microsoft/signalr | Cliente SignalR |
-| lucide-react | Ícones |
-| react-hot-toast | Notificações |
-| clsx | Classes condicionais |
+## 🛠️ Stack
+
+### Backend
+- **ASP.NET Core 8** — REST API
+- **PostgreSQL 16** — banco relacional (único banco, sem MongoDB)
+- **Entity Framework Core 8** — ORM com `EnsureCreated`
+- **SignalR** — comandas em tempo real
+- **JWT (HttpOnly Cookies)** — autenticação segura
+- **Google Gemini 2.5 Flash** — assistente IA
+
+### Frontend
+- **Next.js 14** (App Router) + **TypeScript 5**
+- **Tailwind CSS 3**
+- **Axios** com interceptors de refresh token
+- **@microsoft/signalr** — cliente SignalR
 
 ### Infraestrutura
-
-| Tecnologia | Finalidade |
-|---|---|
-| Docker + Docker Compose | Containerização |
-| Nginx 1.27 Alpine | Proxy reverso — porta 80 |
-| Hostinger VPS (Ubuntu 24.04, 4 GB RAM) | Servidor de produção |
-| Cloudflare | DNS + SSL/TLS (HTTPS) |
+- **Docker + Docker Compose** — containerização
+- **Nginx 1.27** — proxy reverso
+- **Cloudflare** — DNS + SSL/TLS
+- **VPS Ubuntu 24.04** (Hostinger ou similar)
 
 ---
 
-## Estrutura do Projeto
+## 🚀 Rodando localmente
 
-```
-softNerd/
-├── CardGameStore/              # ASP.NET Core 8 — API REST
-│   ├── Controllers/            # Endpoints (Auth, Product, Comanda, Venda, Upload, ...)
-│   ├── Services/               # Lógica de negócio
-│   ├── Models/
-│   │   ├── PostgreSQL/         # Entidades EF Core
-│   │   └── MongoDB/            # Documentos (VendaAvulsa)
-│   ├── DTOs/                   # Requests e responses
-│   ├── Data/                   # AppDbContext
-│   └── Dockerfile
-│
-├── frontend/                   # Next.js 14 App Router
-│   ├── app/
-│   │   ├── admin/              # Painel administrativo
-│   │   │   ├── dashboard/      # Comandas ao vivo
-│   │   │   ├── venda-avulsa/   # Frente de caixa
-│   │   │   ├── crediario/      # Gestão de crediário
-│   │   │   ├── estoque/        # Produtos e estoque
-│   │   │   ├── campeonatos/    # Gestão de campeonatos
-│   │   │   ├── financeiro/     # Relatórios
-│   │   │   ├── usuarios/       # Gestão de clientes
-│   │   │   ├── anuncios/       # Anúncios e promoções
-│   │   │   ├── qrcodes/        # QR Codes de mesas
-│   │   │   └── lgpd/           # Painel LGPD
-│   │   ├── cliente/            # Área do cliente logado
-│   │   ├── mesa/[mesa]/        # Login por QR Code
-│   │   ├── lgpd/               # Formulário público LGPD
-│   │   ├── privacidade/        # Política de Privacidade
-│   │   └── termos/             # Termos de Uso
-│   ├── components/
-│   │   └── admin/
-│   │       └── AiChatWidget.tsx  # Chat IA flutuante
-│   ├── lib/
-│   │   ├── api.ts              # Todos os endpoints tipados
-│   │   ├── auth.ts             # Gestão de sessão
-│   │   └── signalr.ts          # Hub de tempo real
-│   └── Dockerfile
-│
-├── tests/
-│   ├── api/                    # Testes de endpoints (.http — REST Client)
-│   └── unit/                   # Testes unitários xUnit (10 serviços)
-│
-├── deploy/
-│   ├── docker-compose.prod.yml # Stack de produção completa
-│   ├── nginx/nginx.conf        # Configuração do proxy reverso
-│   ├── setup.sh                # Instalação automática no VPS
-│   ├── update.sh               # Atualização (git pull + rebuild)
-│   └── cleanup.sh              # Limpeza segura de espaço em disco
-│
-├── softNerd.sln                # Solução Visual Studio
-├── run-tests.ps1               # Runner de testes unitários
-└── .gitignore
-```
+### Pré-requisitos
+- [.NET 8 SDK](https://dotnet.microsoft.com/download)
+- [Node.js 20+](https://nodejs.org)
+- Git
 
----
-
-## Deploy em Produção
-
-### Primeira instalação no VPS
+### Backend (SQLite automático em dev)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Taino-Edu/softNerd/main/deploy/setup.sh | bash
+cd BenditaCoxinha
+dotnet run
+# API em http://localhost:5000
+# Swagger em http://localhost:5000/swagger
 ```
 
-O script instala Docker, configura o firewall (UFW), clona o repositório, gera segredos e sobe os containers.
-
-### Atualizar após novo commit
-
-```bash
-bash /opt/santuarionerd/deploy/update.sh
-```
-
-Ou manualmente:
-
-```bash
-cd /opt/santuarionerd
-git pull
-docker compose -f deploy/docker-compose.prod.yml build api frontend
-docker compose -f deploy/docker-compose.prod.yml up -d
-```
-
-### Limpar espaço em disco (build cache acumula rápido)
-
-```bash
-bash /opt/santuarionerd/deploy/cleanup.sh
-```
-
----
-
-## Variáveis de Ambiente
-
-Copie `deploy/.env.example` para `/opt/santuarionerd/.env` e preencha:
-
-```env
-# PostgreSQL
-POSTGRES_DB=cardgamestore
-POSTGRES_USER=cardgame_user
-POSTGRES_PASSWORD=<gerado pelo setup.sh>
-
-# JWT (não altere após o primeiro deploy)
-JWT_SECRET=<gerado pelo setup.sh>
-
-# E-mail via Resend
-SMTP_PASSWORD=<API Key do resend.com>
-
-# Google Gemini IA
-GEMINI_API_KEY=<chave do Google AI Studio>
-
-# Segurança
-IP_HASH_SALT=<gerado pelo setup.sh>
-
-# Senha do admin inicial (opcional — só tem efeito no PRIMEIRO boot com banco vazio)
-# Se omitido, usa "SenhaForte@123" e emite LogWarning
-ADMIN_SEED_PASSWORD=<senha forte para o admin inicial>
-```
-
----
-
-## Testes
-
-### Unitários (xUnit)
-
-```bash
-# Windows
-.\run-tests.ps1
-
-# Linux/macOS
-dotnet test tests/unit/CardGameStore.Tests/CardGameStore.Tests.csproj
-```
-
-Cobertura: 134 testes unitários, 100% aprovados. Serviços: Auth, Product, Comanda, VendaAvulsa, Crediário, Championship, User, Announcement, Audit, LGPD.
-
-### E2E (Playwright)
+### Frontend
 
 ```bash
 cd frontend
-npx playwright test
+npm install
+npm run dev
+# App em http://localhost:3000
 ```
 
-Infraestrutura de testes E2E configurada em `frontend/tests/`.
+Crie `frontend/.env.local`:
+```env
+NEXT_PUBLIC_API_URL=http://localhost:5000
+```
 
-### API (.http files — REST Client)
-
-Abra os arquivos em `tests/api/` com a extensão **REST Client** no VS Code.  
-Configure as variáveis em `tests/api/http-client.env.json`.
-
----
-
-## Principais Endpoints
-
-### Autenticação
-| Método | Endpoint | Descrição |
-|---|---|---|
-| `POST` | `/api/auth/login` | Login — define cookies HttpOnly |
-| `POST` | `/api/auth/refresh` | Renova accessToken |
-| `POST` | `/api/auth/logout` | Encerra sessão |
-| `POST` | `/api/auth/quick-login` | Login via QR Code (mesa) |
-
-### Produtos
-| Método | Endpoint | Descrição |
-|---|---|---|
-| `GET` | `/api/product` | Lista produtos com filtros |
-| `POST` | `/api/product` | Cria produto |
-| `PUT` | `/api/product/{id}` | Atualiza produto |
-| `DELETE` | `/api/product/{id}` | Desativa produto |
-| `GET` | `/api/product/barcode/{code}` | Busca por código de barras |
-| `GET` | `/api/product/low-stock` | Produtos com estoque baixo |
-
-### Comandas
-| Método | Endpoint | Descrição |
-|---|---|---|
-| `GET` | `/api/comanda/dashboard` | Comandas ativas (tempo real) |
-| `POST` | `/api/comanda/{id}/items` | Adiciona item |
-| `DELETE` | `/api/comanda/{id}/items/{itemId}` | Remove item |
-| `PUT` | `/api/comanda/{id}/close` | Fecha comanda |
-| `PUT` | `/api/comanda/{id}/cancel` | Cancela comanda |
-| `POST` | `/api/comanda/{id}/apply-points` | Aplica pontos de fidelidade |
-| `DELETE` | `/api/comanda/{id}/apply-points` | Remove pontos aplicados |
-
-### Venda Avulsa
-| Método | Endpoint | Descrição |
-|---|---|---|
-| `POST` | `/api/venda-avulsa` | Registra venda no balcão |
-| `GET` | `/api/venda-avulsa/recent` | Últimas N vendas |
-| `GET` | `/api/venda-avulsa/by-date?date=YYYY-MM-DD` | Vendas de um dia específico |
-
-### Crediário
-| Método | Endpoint | Descrição |
-|---|---|---|
-| `GET` | `/api/crediario` | Lista crediários com filtros |
-| `POST` | `/api/crediario` | Cria crediário manual |
-| `POST` | `/api/crediario/{id}/pagamento` | Registra pagamento |
-
-### Campeonatos
-| Método | Endpoint | Descrição |
-|---|---|---|
-| `GET` | `/api/championship` | Lista campeonatos públicos |
-| `GET` | `/api/championship/admin/all` | Lista todos (admin, com busca) |
-| `POST` | `/api/championship` | Cria campeonato |
-| `PUT` | `/api/championship/{id}/image` | Define imagem de capa |
-| `DELETE` | `/api/championship/{id}` | Remove campeonato finalizado/cancelado |
-| `POST` | `/api/championship/{id}/admin-register` | Inscreve cliente manualmente |
-| `DELETE` | `/api/championship/{id}/participants/{pid}` | Remove participante |
-
-### Upload
-| Método | Endpoint | Descrição |
-|---|---|---|
-| `POST` | `/api/upload/image` | Upload de imagem de produto (máx 5 MB) |
-| `POST` | `/api/upload/profile-image` | Upload de foto de perfil do usuário (máx 5 MB) |
-
-### IA
-| Método | Endpoint | Descrição |
-|---|---|---|
-| `POST` | `/api/ai/chat` | Chat com Gemini 2.5 Flash |
+> Em dev o backend usa **SQLite** automaticamente — não precisa instalar PostgreSQL.
 
 ---
 
-## Segurança
+## 🐳 Deploy em produção (VPS)
 
-| Medida | Implementação |
+### Primeira vez
+
+```bash
+# No VPS como root:
+curl -fsSL https://raw.githubusercontent.com/Taino-Edu/Bendita_coxinha/main/deploy/setup.sh | bash
+```
+
+### Atualizações
+
+```bash
+bash /opt/benditacoxinha/deploy/update.sh
+```
+
+### Stack em produção
+
+```
+Internet → Cloudflare (HTTPS) → Nginx :80 → frontend :3000
+                                           → api     :5000
+                                           → postgres :5432
+```
+
+---
+
+## 📁 Estrutura do projeto
+
+```
+Bendita_coxinha/
+├── BenditaCoxinha/          # Backend ASP.NET Core 8
+│   ├── Controllers/         # 15 controllers REST
+│   ├── Services/            # 11 serviços de negócio
+│   ├── Models/PostgreSQL/   # Entidades EF Core
+│   ├── DTOs/                # Request/Response objects
+│   ├── Data/                # AppDbContext
+│   ├── Hubs/                # SignalR (ComandaHub)
+│   └── Middleware/          # JWT, CORS, Rate Limiting, Permissões
+├── frontend/                # Next.js 14
+│   ├── app/admin/           # Painel administrativo
+│   ├── app/cliente/         # Área do cliente logado
+│   ├── app/mesa/[mesa]/     # Flow QR Code → pedido na mesa
+│   └── lib/                 # api.ts, signalr.ts, auth.ts
+├── deploy/                  # Docker Compose + Nginx + scripts
+└── tests/                   # Testes unitários (xUnit) + REST (.http)
+```
+
+---
+
+## 🔐 Variáveis de ambiente obrigatórias (produção)
+
+| Variável | Descrição |
 |---|---|
-| Autenticação | JWT em HttpOnly Cookies (tokens nunca expostos no body JSON) |
-| Senhas | BCrypt com salt aleatório; admin seed via `ADMIN_SEED_PASSWORD` |
-| CSRF | SameSite=Lax |
-| Rate Limiting | GlobalLimiter 300 req/min por IP; políticas "auth" (5/min) e "api" (200/min) |
-| Content-Security-Policy | `default-src 'none'; frame-ancestors 'none'` |
-| SQL Injection | EF Core (queries parametrizadas) |
-| HTML Injection | `HtmlEncoder.Default.Encode()` em campos livres enviados por e-mail |
-| IP em logs | Anonimizado via SHA-256 |
-| HTTPS | Forçado via Cloudflare + `COOKIE_SECURE=true` |
-| Proxy reverso | `UseForwardedHeaders` + `X-Forwarded-For` |
-| Claims nulas | `Guid.TryParse` em todos os controllers — nunca null-forgiving operator |
+| `POSTGRES_PASSWORD` | Senha do PostgreSQL |
+| `JWT_SECRET` | Chave secreta JWT (mín. 32 chars, imutável após deploy) |
+| `GEMINI_API_KEY` | Chave Google Gemini (IA) |
+| `SMTP_PASSWORD` | Senha SMTP para e-mails |
+| `ADMIN_SEED_PASSWORD` | Senha do admin criado no primeiro boot |
 
 ---
 
-## Licença
+## 🗒️ Comandos úteis
 
-Software proprietário e confidencial. Todos os direitos reservados.  
-Consulte [LICENSE](./LICENSE) para os termos completos.
+```bash
+# Ver logs em tempo real
+cd /opt/benditacoxinha/deploy
+docker compose -f docker-compose.prod.yml logs -f
+
+# Reiniciar serviço específico
+docker compose -f docker-compose.prod.yml restart api
+
+# Health check
+curl http://localhost/health
+```
 
 ---
 
-*Santuário Nerd — Gestão inteligente para lojas de card games.*
+## 📄 Documentação técnica
+
+Veja [DOCUMENTACAO-TECNICA.md](./DOCUMENTACAO-TECNICA.md) para arquitetura detalhada, decisões de design e guia de contribuição.
